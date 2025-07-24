@@ -1,0 +1,38 @@
+{
+  "repository": {
+    "name": "polymesh-sdk-integration-test",
+    "description": "Test repository for Ephemeral Next Major Release Integration process validation",
+    "private": false,
+    "has_issues": true,
+    "has_projects": true,
+    "has_wiki": true,
+    "allow_squash_merge": true,
+    "allow_merge_commit": false,
+    "allow_rebase_merge": true,
+    "delete_branch_on_merge": true
+  },
+  "branch_protection": {
+    "master": {
+      "required_pull_request_reviews": {
+        "required_approving_review_count": 2,
+        "dismiss_stale_reviews": true
+      },
+      "required_linear_history": true,
+      "allow_force_pushes": false,
+      "allow_deletions": false,
+      "enforce_admins": true
+    },
+    "develop": {
+      "required_pull_request_reviews": {
+        "required_approving_review_count": 1,
+        "dismiss_stale_reviews": true
+      },
+      "required_linear_history": true,
+      "allow_force_pushes": false,
+      "allow_deletions": false,
+      "enforce_admins": true
+    }
+  },
+  "created": "2025-07-24T13:38:01Z",
+  "purpose": "Integration testing for ephemeral next major release process"
+}
