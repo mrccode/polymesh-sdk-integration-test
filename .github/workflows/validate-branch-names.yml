@@ -1,0 +1,56 @@
+name: Validate Breaking Change Branch Names
+
+on:
+  pull_request:
+    branches: [develop]
+  push:
+    branches: ['bc-**']
+
+jobs:
+  validate-branch-name:
+    if: startsWith(github.ref_name, 'bc-')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate branch naming convention
+        run: |
+          BRANCH_NAME="${{ github.ref_name }}"
+          if ! echo "$BRANCH_NAME" | grep -E '^bc-[0-9]+-[a-z0-9-]+$'; then
+            echo "❌ Invalid branch name: $BRANCH_NAME"
+            echo "✅ Expected format: bc-<number>-<description>"
+            echo ""
+            echo "Examples of valid branch names:"
+            echo "  - bc-1-remove-deprecated-apis"
+            echo "  - bc-10-async-interface-changes"
+            echo "  - bc-25-new-error-handling"
+            echo ""
+            echo "Branch naming rules:"
+            echo "  - Must start with 'bc-'"
+            echo "  - Must include a number (determines integration order)"
+            echo "  - Must include a descriptive name with hyphens"
+            echo "  - Only lowercase letters, numbers, and hyphens allowed"
+            exit 1
+          fi
+          echo "✅ Branch name validation passed for: $BRANCH_NAME"
+          
+      - name: Extract and validate branch number
+        run: |
+          BRANCH_NAME="${{ github.ref_name }}"
+          BRANCH_NUMBER=$(echo "$BRANCH_NAME" | sed -n 's/^bc-\([0-9]\+\)-.*/\1/p')
+          
+          if [ -z "$BRANCH_NUMBER" ]; then
+            echo "❌ Could not extract branch number from: $BRANCH_NAME"
+            exit 1
+          fi
+          
+          echo "📋 Branch details:"
+          echo "  - Branch name: $BRANCH_NAME"
+          echo "  - Branch number: $BRANCH_NUMBER"
+          echo "  - Integration order: This branch will be applied ${BRANCH_NUMBER}th in the sequence"
+          
+          if [ "$BRANCH_NUMBER" -lt 1 ] || [ "$BRANCH_NUMBER" -gt 999 ]; then
+            echo "⚠️  Warning: Branch number $BRANCH_NUMBER is outside recommended range (1-999)"
+          fi
+          
+          if [ "$BRANCH_NUMBER" -gt 50 ]; then
+            echo "⚠️  Warning: High branch numbers (>50) may indicate too many breaking changes for a single major release"
+          fi
