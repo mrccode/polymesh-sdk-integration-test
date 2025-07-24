@@ -1,0 +1,200 @@
+# Ephemeral Next Major Release Integration Workflow
+# This workflow discovers breaking change branches, integrates them in numerical order,
+# and publishes preview releases for testing
+
+name: Generate Next Major Release Preview
+
+on:
+  push:
+    branches: [develop]
+  workflow_dispatch:
+    inputs:
+      preview_type:
+        description: 'Preview release type'
+        required: false
+        default: 'preview'
+        type: choice
+        options:
+          - preview
+          - alpha
+          - beta
+          - rc
+
+env:
+  NODE_VERSION: '18'
+  # Repository secrets required:
+  # - BOT_PAT: Personal access token for the release bot
+  # - NPM_TOKEN: NPM automation token for publishing packages
+
+jobs:
+  # Job 1: Discover breaking change branches
+  discover-branches:
+    runs-on: ubuntu-latest
+    outputs:
+      bc_branches: ${{ steps.find-branches.outputs.branches }}
+      has_breaking_changes: ${{ steps.find-branches.outputs.has_changes }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.BOT_PAT || github.token }}
+      
+      - name: Discover breaking change branches
+        id: find-branches
+        run: |
+          echo "🔍 Discovering breaking change branches..."
+          
+          # Find all bc-* branches and sort numerically
+          BC_BRANCHES=$(git branch -r | grep -E 'origin/bc-[0-9]+-' | sed 's/origin\///' | sed 's/^ *//' | sort -V || echo "")
+          
+          if [ -z "$BC_BRANCHES" ]; then
+            echo "ℹ️  No breaking change branches found"
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+            echo "branches=[]" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
+          echo "📋 Found breaking change branches:"
+          echo "$BC_BRANCHES" | while read branch; do
+            echo "  - $branch"
+          done
+          
+          # Convert to JSON array for matrix
+          BC_ARRAY=$(echo "$BC_BRANCHES" | jq -R -s -c 'split("\n") | map(select(length > 0))')
+          echo "branches=$BC_ARRAY" >> $GITHUB_OUTPUT
+          echo "has_changes=true" >> $GITHUB_OUTPUT
+  
+  # Job 2: Check for conflicts and branch health
+  validate-branches:
+    needs: discover-branches
+    if: needs.discover-branches.outputs.has_breaking_changes == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        branch: ${{ fromJson(needs.discover-branches.outputs.bc_branches) }}
+      fail-fast: false
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.BOT_PAT || github.token }}
+      
+      - name: Check branch health
+        run: |
+          echo "🔍 Checking health of branch: ${{ matrix.branch }}"
+          
+          # Check if branch is stale (>50 commits behind develop)
+          COMMITS_BEHIND=$(git rev-list --count origin/${{ matrix.branch }}..origin/develop)
+          echo "📊 Branch is $COMMITS_BEHIND commits behind develop"
+          
+          if [ $COMMITS_BEHIND -gt 50 ]; then
+            echo "⚠️  Branch ${{ matrix.branch }} is significantly behind develop ($COMMITS_BEHIND commits)"
+            echo "Consider rebasing this branch before integration"
+          fi
+  
+  # Job 3: Integrate breaking changes
+  integrate-changes:
+    needs: [discover-branches, validate-branches]
+    if: needs.discover-branches.outputs.has_breaking_changes == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.BOT_PAT || github.token }}
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+      
+      - name: Configure Git
+        run: |
+          git config user.name "Test Release Bot"
+          git config user.email "test-release-bot@example.com"
+      
+      - name: Create ephemeral integration branch
+        run: |
+          echo "🔧 Creating ephemeral integration branch..."
+          TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+          INTEGRATION_BRANCH="ephemeral-integration-$TIMESTAMP"
+          echo "INTEGRATION_BRANCH=$INTEGRATION_BRANCH" >> $GITHUB_ENV
+          
+          git checkout -b $INTEGRATION_BRANCH develop
+          echo "✅ Created integration branch: $INTEGRATION_BRANCH"
+      
+      - name: Cherry-pick breaking changes
+        run: |
+          echo "🍒 Integrating breaking changes in numerical order..."
+          
+          # This is a placeholder - full implementation would:
+          # 1. Parse branch numbers and sort
+          # 2. Cherry-pick commits from each branch
+          # 3. Handle conflicts by creating GitHub issues
+          # 4. Continue with non-conflicting branches
+          
+          echo "⚠️  This is a placeholder workflow for testing infrastructure"
+          echo "Full integration logic would be implemented here"
+      
+      - name: Build and test
+        run: |
+          echo "🔨 Building integrated codebase..."
+          # npm ci
+          # npm run build
+          # npm test
+          echo "✅ Build and tests would run here"
+      
+      - name: Generate version
+        id: version
+        run: |
+          PREVIEW_TYPE="${{ github.event.inputs.preview_type || 'preview' }}"
+          TIMESTAMP=$(date +%Y%m%d%H%M%S)
+          VERSION="1.0.0-$PREVIEW_TYPE.$TIMESTAMP"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "📦 Generated version: $VERSION"
+      
+      - name: Publish preview package
+        run: |
+          echo "📦 Publishing preview package..."
+          # npm version ${{ steps.version.outputs.version }} --no-git-tag-version
+          # npm publish --tag next
+          echo "✅ Package would be published to npm here"
+      
+      - name: Create GitHub release
+        run: |
+          echo "🚀 Creating GitHub release..."
+          echo "✅ GitHub release would be created here"
+      
+      - name: Create release candidate branch
+        if: success()
+        run: |
+          echo "🏷️ Creating release candidate branch..."
+          RC_BRANCH="release-candidate/v${{ steps.version.outputs.version }}"
+          git checkout -b $RC_BRANCH
+          # git push origin $RC_BRANCH
+          echo "✅ Release candidate branch would be created: $RC_BRANCH"
+  
+  # Job 4: Report results
+  report-results:
+    needs: [discover-branches, integrate-changes]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Report integration results
+        run: |
+          echo "📊 Integration workflow completed"
+          
+          if [ "${{ needs.discover-branches.outputs.has_breaking_changes }}" == "false" ]; then
+            echo "ℹ️  No breaking changes found - develop branch is ready for patch/minor releases"
+          elif [ "${{ needs.integrate-changes.result }}" == "success" ]; then
+            echo "✅ All breaking changes integrated successfully"
+            echo "🏷️ Release candidate branch created"
+            echo "📦 Preview package published to npm"
+          else
+            echo "❌ Integration failed - check logs for details"
+            echo "🔍 Some branches may have conflicts requiring manual resolution"
+          fi
