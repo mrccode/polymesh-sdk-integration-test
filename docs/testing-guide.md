@@ -7,13 +7,16 @@ This guide provides instructions for testing the Ephemeral Next Major Release In
 ## Test Environment Setup
 
 ### Prerequisites
+
 - GitHub account with write access to this repository
 - Git CLI configured with commit signing (ed25519-sk keys preferred)
 - Node.js 18+ installed locally
 - GitHub CLI (`gh`) installed and authenticated
 
 ### Environment Variables
+
 For automated testing, configure these environment variables:
+
 ```bash
 export GITHUB_TOKEN="your_github_token"
 export NPM_TOKEN="your_npm_token"  # For package publishing tests
@@ -24,6 +27,7 @@ export REPO_NAME="polymesh-sdk-integration-test"
 ## Test Scenarios
 
 ### 1. Basic Breaking Change Branch Creation
+
 ```bash
 # Create a test breaking change branch
 git checkout develop
@@ -41,6 +45,7 @@ git push origin bc-1-test-feature
 ```
 
 ### 2. Multiple Ordered Branches
+
 ```bash
 # Create multiple breaking change branches with different numbers
 for i in 1 5 10; do
@@ -56,6 +61,7 @@ done
 ```
 
 ### 3. Trigger Integration Workflow
+
 ```bash
 # Trigger workflow via develop push
 git checkout develop
@@ -67,6 +73,7 @@ gh workflow run generate-next-preview.yml
 ```
 
 ### 4. Test Conflict Scenarios
+
 ```bash
 # Create conflicting changes
 git checkout develop
@@ -87,6 +94,7 @@ git push origin bc-2-conflicting-change
 ## Validation Checklist
 
 ### Branch Protection Validation
+
 - [ ] Cannot push directly to `master` branch
 - [ ] Cannot push directly to `develop` branch
 - [ ] Pull requests require appropriate number of reviewers
@@ -94,6 +102,7 @@ git push origin bc-2-conflicting-change
 - [ ] Force pushes are restricted appropriately
 
 ### Workflow Validation
+
 - [ ] Branch name validation workflow runs on `bc-*` branches
 - [ ] Invalid branch names are rejected
 - [ ] Valid branch names pass validation
@@ -101,6 +110,7 @@ git push origin bc-2-conflicting-change
 - [ ] Branches are processed in numerical order
 
 ### Integration Process Validation
+
 - [ ] Breaking change branches are discovered automatically
 - [ ] Branches are sorted by embedded number
 - [ ] Conflicts are handled gracefully
@@ -109,6 +119,7 @@ git push origin bc-2-conflicting-change
 - [ ] Preview releases are generated successfully
 
 ### Security Validation
+
 - [ ] Repository access controls work correctly
 - [ ] Bot accounts have appropriate permissions
 - [ ] Secrets are properly configured and secured
@@ -117,17 +128,20 @@ git push origin bc-2-conflicting-change
 ## Monitoring and Debugging
 
 ### GitHub Actions Logs
+
 - Check workflow logs in the Actions tab
 - Look for specific job failures or warnings
 - Verify all required secrets are configured
 
 ### API Rate Limits
+
 ```bash
 # Check current GitHub API rate limit status
 curl -H "Authorization: token $GITHUB_TOKEN" https://api.github.com/rate_limit
 ```
 
 ### Branch Status Checks
+
 ```bash
 # List all breaking change branches
 git branch -r | grep bc- | sort -V
@@ -140,6 +154,7 @@ gh api repos/$GITHUB_ORG/$REPO_NAME/branches/master/protection
 ## Cleanup Procedures
 
 ### After Test Completion
+
 ```bash
 # Delete test breaking change branches
 git branch -r | grep bc- | sed 's/origin\///' | xargs -I {} git push origin --delete {}
@@ -153,7 +168,9 @@ git branch | grep bc- | xargs git branch -D
 ```
 
 ### Emergency Reset
+
 If the repository becomes unusable:
+
 1. Document the current state and issue
 2. Create a backup of important test data
 3. Reset repository to last known good state
@@ -166,6 +183,7 @@ See [troubleshooting.md](troubleshooting.md) for common issues and solutions.
 ## Contact and Support
 
 For issues with testing:
+
 1. Check GitHub Actions logs first
 2. Review this testing guide
 3. Consult the troubleshooting guide
