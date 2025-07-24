@@ -5,7 +5,8 @@
 ### Branch Protection Violations
 
 **Issue**: Unable to push directly to protected branches
-**Solution**: 
+**Solution**:
+
 ```bash
 # Always use pull requests for protected branches
 git checkout -b feature/my-change develop
@@ -18,6 +19,7 @@ git push origin feature/my-change
 
 **Issue**: Merge commits rejected by branch protection
 **Solution**:
+
 ```bash
 # Use squash merge or rebase merge instead
 git checkout develop
@@ -30,6 +32,7 @@ git rebase feature/my-change
 
 **Issue**: GitHub API requests being rate limited during tests
 **Solution**:
+
 - Check current rate limit status: `curl -H "Authorization: token $GITHUB_TOKEN" https://api.github.com/rate_limit`
 - Wait for rate limit reset
 - Use conditional requests with ETags where possible
@@ -39,6 +42,7 @@ git rebase feature/my-change
 
 **Issue**: GitHub Actions workflows failing during tests
 **Solution**:
+
 1. Check workflow logs in Actions tab
 2. Verify all required secrets are configured
 3. Confirm branch protection rules allow workflow execution
@@ -47,14 +51,18 @@ git rebase feature/my-change
 ## Emergency Procedures
 
 ### Repository Recovery
+
 If the repository becomes unusable during testing:
+
 1. Document the current state and issue
 2. Create a backup of any important test data
 3. Reset repository to last known good state
 4. Restart affected test scenarios
 
 ### Access Issues
+
 If team members lose access during testing:
+
 1. Verify current collaborator permissions
 2. Check organization membership status
 3. Regenerate access tokens if needed

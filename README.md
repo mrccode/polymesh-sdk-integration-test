@@ -1,16 +1,49 @@
-# Polymesh SDK Integration Test Repository
+# Polymesh SDK Integration Test
 
-## Purpose
+[![CI](https://github.com/test-org/polymesh-sdk-integration-test/workflows/CI/badge.svg)](https://github.com/test-org/polymesh-sdk-integration-test/actions)
+[![Coverage](https://codecov.io/gh/test-org/polymesh-sdk-integration-test/branch/main/graph/badge.svg)](https://codecov.io/gh/test-org/polymesh-sdk-integration-test)
+[![npm version](https://badge.fury.io/js/%40test-org%2Fpolymesh-sdk-integration-test.svg)](https://badge.fury.io/js/%40test-org%2Fpolymesh-sdk-integration-test)
 
-This repository is specifically created for end-to-end testing of the **Ephemeral Next Major Release Integration** process. It serves as a controlled environment to validate all aspects of the breaking change management system described in the main project documentation.
+A comprehensive TypeScript project designed specifically for testing the **Ephemeral Next Major Release Integration** process. This repository serves as a realistic codebase with meaningful inter-module dependencies to validate breaking change management workflows.
+
+## 🎯 Project Purpose
+
+This project is part of the infrastructure for testing breaking change integration processes. It provides:
+
+- **Realistic TypeScript codebase** with modern tooling and dependencies
+- **Inter-module relationships** that create cascading effects when modified
+- **Comprehensive test coverage** to validate breaking change detection
+- **CI/CD integration** for automated testing and validation
+- **Security-hardened configuration** following 2025 best practices
 
 ## ⚠️ Important Notice
 
 **This is a test repository.** It contains:
+
 - Sample code for testing purposes only
 - Automated workflows designed for validation scenarios
 - Test data that should not be used in production
 - Ephemeral branches that may be created and deleted during testing
+
+## 🏗️ Architecture
+
+The project simulates a blockchain SDK with the following modules:
+
+```
+src/
+├── api/           # API layer with pagination and response formatting
+├── asset/         # Asset management with metadata and validation
+├── transaction/   # Transaction processing with inter-asset dependencies
+├── types/         # Shared type definitions with Zod validation
+└── utils/         # Error handling and common utilities
+```
+
+### Key Dependencies
+
+- **Asset ↔ Transaction**: Transactions validate against asset supply limits
+- **API ↔ All Modules**: API layer orchestrates all business logic
+- **Types ↔ All Modules**: Shared types create coupling across modules
+- **Utils ↔ All Modules**: Error handling provides cross-cutting concerns
 
 ## Repository Structure
 
@@ -26,6 +59,7 @@ This repository is specifically created for end-to-end testing of the **Ephemera
 ## Branch Protection Rules
 
 ### Master Branch
+
 - ✅ Requires 2 pull request reviews
 - ✅ Requires status checks to pass
 - ✅ Enforces linear history (no merge commits)
@@ -33,6 +67,7 @@ This repository is specifically created for end-to-end testing of the **Ephemera
 - ✅ Includes administrators in restrictions
 
 ### Develop Branch
+
 - ✅ Requires 1 pull request review
 - ✅ Requires status checks to pass
 - ✅ Enforces linear history (no merge commits)
@@ -52,6 +87,7 @@ This repository supports testing of:
 ## Usage During Tests
 
 ### Creating Test Breaking Changes
+
 ```bash
 # Create a breaking change branch for testing
 git checkout -b bc-1-test-breaking-change develop
@@ -60,6 +96,7 @@ git push origin bc-1-test-breaking-change
 ```
 
 ### Triggering Test Workflows
+
 ```bash
 # Trigger preview generation workflow
 git checkout develop
@@ -76,6 +113,7 @@ git push origin develop
 ## Cleanup and Lifecycle
 
 This repository is designed for:
+
 - **Setup**: Initial configuration and validation
 - **Testing**: Comprehensive test execution over 2-3 weeks
 - **Analysis**: Results collection and documentation
@@ -90,6 +128,7 @@ This repository is designed for:
 ## Support and Issues
 
 For testing-related issues or questions:
+
 1. Check the [troubleshooting guide](docs/troubleshooting.md)
 2. Review test execution logs
 3. Contact the test coordination team

@@ -1,0 +1,97 @@
+{
+  "name": "@test-org/polymesh-sdk-integration-test",
+  "version": "0.1.0",
+  "description": "Test repository for Ephemeral Next Major Release Integration process",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "build:watch": "tsup --watch",
+    "dev": "tsx src/index.ts",
+    "test": "vitest",
+    "test:watch": "vitest --watch",
+    "test:coverage": "vitest --coverage",
+    "test:ui": "vitest --ui",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "tsc --noEmit",
+    "audit": "npm audit --audit-level=moderate",
+    "audit:fix": "npm audit fix",
+    "audit:ci": "audit-ci --moderate",
+    "clean": "rm -rf dist coverage .nyc_output",
+    "prepare": "husky install",
+    "prepublishOnly": "npm run clean && npm run build && npm run test && npm run lint",
+    "release:dry": "npm publish --dry-run"
+  },
+  "keywords": [
+    "typescript",
+    "testing",
+    "ephemeral-integration",
+    "breaking-changes",
+    "polymesh"
+  ],
+  "author": "Test Development Team",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/test-org/polymesh-sdk-integration-test.git"
+  },
+  "bugs": {
+    "url": "https://github.com/test-org/polymesh-sdk-integration-test/issues"
+  },
+  "homepage": "https://github.com/test-org/polymesh-sdk-integration-test#readme",
+  "devDependencies": {
+    "@eslint/js": "9.17.0",
+    "@types/node": "22.10.2",
+    "@typescript-eslint/eslint-plugin": "8.18.2",
+    "@typescript-eslint/parser": "8.18.2",
+    "@vitest/coverage-v8": "2.1.8",
+    "@vitest/ui": "2.1.8",
+    "audit-ci": "7.1.0",
+    "eslint": "9.17.0",
+    "eslint-config-prettier": "9.1.0",
+    "eslint-plugin-prettier": "5.2.1",
+    "globals": "15.14.0",
+    "husky": "9.1.7",
+    "lint-staged": "15.2.11",
+    "prettier": "3.4.2",
+    "tsup": "8.3.5",
+    "tsx": "4.19.2",
+    "typescript": "5.7.2",
+    "typescript-eslint": "8.18.2",
+    "vitest": "2.1.8"
+  },
+  "dependencies": {
+    "zod": "3.24.1"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/",
+    "access": "public"
+  },
+  "lint-staged": {
+    "*.{ts,tsx,js,jsx}": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "*.{json,md,yml,yaml}": [
+      "prettier --write"
+    ]
+  }
+}

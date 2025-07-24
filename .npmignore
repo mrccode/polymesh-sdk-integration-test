@@ -1,0 +1,38 @@
+# Source files
+src/
+tests/
+test/
+*.test.ts
+*.spec.ts
+
+# Configuration files
+.github/
+.vscode/
+*.config.js
+*.config.ts
+tsconfig.json
+vitest.config.ts
+eslint.config.js
+prettier.config.js
+
+# Development files
+.gitignore
+.npmignore
+.editorconfig
+.env*
+
+# Build artifacts
+*.tsbuildinfo
+coverage/
+.nyc_output/
+
+# Documentation (keep README.md)
+docs/
+*.md
+!README.md
+!CHANGELOG.md
+
+# Development dependencies indicators
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
