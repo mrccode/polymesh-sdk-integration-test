@@ -23,7 +23,7 @@ on:
 
 # Security: Minimal permissions following principle of least privilege
 permissions:
-  contents: read
+  contents: write
   issues: write
   pull-requests: read
   packages: write
@@ -267,7 +267,7 @@ jobs:
         if: steps.discovery.outputs.found == 'true'
         uses: actions/create-release@v1
         env:
-          GITHUB_TOKEN: ${{ secrets.BOT_PAT }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tag_name: ${{ env.PREVIEW_VERSION }}
           release_name: "Preview Release ${{ env.PREVIEW_VERSION }}"
