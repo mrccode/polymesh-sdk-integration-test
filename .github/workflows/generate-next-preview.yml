@@ -78,20 +78,20 @@ jobs:
           git fetch --all
           
           # Find all bc-<number>-* branches and sort numerically
-          BC_BRANCHES=$(git branch -r | grep -E 'origin/bc-[0-9]+-' | sed 's/origin\///' | while read branch; do
+          BC_BRANCHES=$(git branch -r | grep -E 'origin/bc-[0-9]+-' | sed 's/origin\///' | while read -r branch; do
             number=$(echo "$branch" | sed -n 's/bc-\([0-9]\+\)-.*/\1/p')
             if [[ "$number" =~ ^[0-9]+$ ]]; then
               echo "$number $branch"
             fi
           done | sort -n | awk '{print $2}' | tr '\n' ' ')
           
-          echo "BC_BRANCHES=$BC_BRANCHES" >> $GITHUB_ENV
+          echo "BC_BRANCHES=$BC_BRANCHES" >> "$GITHUB_ENV"
           
           if [[ -z "$BC_BRANCHES" ]]; then
-            echo "found=false" >> $GITHUB_OUTPUT
+            echo "found=false" >> "$GITHUB_OUTPUT"
             echo "No breaking change branches found"
           else
-            echo "found=true" >> $GITHUB_OUTPUT
+            echo "found=true" >> "$GITHUB_OUTPUT"
             echo "Found breaking change branches: $BC_BRANCHES"
           fi
       
@@ -117,7 +117,7 @@ jobs:
             echo "Processing branch: $branch"
             
             # Get commits from this branch not in develop
-            COMMITS=$(git rev-list --reverse develop..origin/$branch)
+            COMMITS=$(git rev-list --reverse "develop..origin/$branch")
             
             if [[ -z "$COMMITS" ]]; then
               echo "No commits found in $branch"
@@ -129,10 +129,10 @@ jobs:
             
             # Cherry-pick each commit in chronological order
             for commit in $COMMITS; do
-              COMMIT_MSG=$(git log -1 --format="%s" $commit)
+              COMMIT_MSG=$(git log -1 --format="%s" "$commit")
               echo "Applying commit: $commit ($COMMIT_MSG)"
               
-              if git cherry-pick $commit; then
+              if git cherry-pick "$commit"; then
                 echo "✅ Successfully applied: $commit"
               else
                 echo "❌ Conflict detected: $commit"
@@ -163,15 +163,15 @@ jobs:
           done
           
           # Set outputs for downstream steps
-          echo "SUCCESSFUL_BRANCHES=$SUCCESSFUL_BRANCHES" >> $GITHUB_ENV
-          echo "FAILED_BRANCHES=$FAILED_BRANCHES" >> $GITHUB_ENV
+          echo "SUCCESSFUL_BRANCHES=$SUCCESSFUL_BRANCHES" >> "$GITHUB_ENV"
+          echo "FAILED_BRANCHES=$FAILED_BRANCHES" >> "$GITHUB_ENV"
           echo -e "$CONFLICT_DETAILS" > conflict_details.txt
           
           if [[ -n "$FAILED_BRANCHES" ]]; then
-            echo "conflicts=true" >> $GITHUB_OUTPUT
+            echo "conflicts=true" >> "$GITHUB_OUTPUT"
             echo "Conflicts detected in branches:$FAILED_BRANCHES"
           else
-            echo "conflicts=false" >> $GITHUB_OUTPUT
+            echo "conflicts=false" >> "$GITHUB_OUTPUT"
             echo "All breaking changes applied successfully"
           fi
       
@@ -182,20 +182,20 @@ jobs:
           STALE_BRANCHES=""
           
           for branch in $BC_BRANCHES; do
-            COMMITS_BEHIND=$(git rev-list --count origin/$branch..develop)
+            COMMITS_BEHIND=$(git rev-list --count "origin/$branch..develop")
             
-            if [[ $COMMITS_BEHIND -gt 50 ]]; then
+            if [[ "$COMMITS_BEHIND" -gt 50 ]]; then
               echo "⚠️ $branch is $COMMITS_BEHIND commits behind develop"
               STALE_BRANCHES="$STALE_BRANCHES $branch"
             fi
           done
           
-          echo "STALE_BRANCHES=$STALE_BRANCHES" >> $GITHUB_ENV
+          echo "STALE_BRANCHES=$STALE_BRANCHES" >> "$GITHUB_ENV"
           
           if [[ -n "$STALE_BRANCHES" ]]; then
-            echo "stale_found=true" >> $GITHUB_OUTPUT
+            echo "stale_found=true" >> "$GITHUB_OUTPUT"
           else
-            echo "stale_found=false" >> $GITHUB_OUTPUT
+            echo "stale_found=false" >> "$GITHUB_OUTPUT"
           fi
       
       - name: Build integrated codebase
