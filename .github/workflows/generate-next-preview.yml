@@ -100,7 +100,7 @@ jobs:
         run: |
           # Create temporary integration branch from latest develop
           INTEGRATION_BRANCH="ephemeral-integration-$(date +%Y%m%d%H%M%S)"
-          echo "INTEGRATION_BRANCH=$INTEGRATION_BRANCH" >> $GITHUB_ENV
+          echo "INTEGRATION_BRANCH=$INTEGRATION_BRANCH" >> "$GITHUB_ENV"
           
           git checkout -b "$INTEGRATION_BRANCH" develop
           echo "Created ephemeral integration branch: $INTEGRATION_BRANCH"
@@ -226,8 +226,8 @@ jobs:
             *)     PREVIEW_VERSION="${CURRENT_VERSION}-next.${TIMESTAMP}" ;;
           esac
           
-          echo "PREVIEW_VERSION=$PREVIEW_VERSION" >> $GITHUB_ENV
-          echo "preview_version=$PREVIEW_VERSION" >> $GITHUB_OUTPUT
+          echo "PREVIEW_VERSION=$PREVIEW_VERSION" >> "$GITHUB_ENV"
+          echo "preview_version=$PREVIEW_VERSION" >> "$GITHUB_OUTPUT"
           
           # Update package.json version for publishing
           npm version "$PREVIEW_VERSION" --no-git-tag-version
@@ -268,8 +268,8 @@ jobs:
           git checkout -b "$RC_BRANCH"
           git push origin "$RC_BRANCH"
           
-          echo "RC_BRANCH=$RC_BRANCH" >> $GITHUB_ENV
-          echo "created=true" >> $GITHUB_OUTPUT
+          echo "RC_BRANCH=$RC_BRANCH" >> "$GITHUB_ENV"
+          echo "created=true" >> "$GITHUB_OUTPUT"
           echo "Created release candidate branch: $RC_BRANCH"
       
       - name: Create GitHub release

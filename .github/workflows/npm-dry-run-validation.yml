@@ -56,7 +56,7 @@ jobs:
       run: |
         echo "Generating actual tarball..."
         npm pack
-        TARBALL=$(ls *.tgz | head -1)
+        TARBALL=$(find . -maxdepth 1 -name "*.tgz" | head -1)
         echo "Tarball created: $TARBALL"
         
         echo "Inspecting tarball contents..."
@@ -79,7 +79,7 @@ jobs:
     - name: Simulate package installation
       run: |
         echo "Testing tarball installation..."
-        TARBALL=$(ls *.tgz | head -1)
+        TARBALL=$(find . -maxdepth 1 -name "*.tgz" | head -1)
         npm install "./$TARBALL" --dry-run
         echo "✅ Package installation simulation successful"
       
@@ -99,19 +99,21 @@ jobs:
       
     - name: Generate validation report
       run: |
-        echo "# NPM Package Validation Report" > validation-report.md
-        echo "## Configuration" >> validation-report.md
-        echo "- Package: $(jq -r '.name' package.json)" >> validation-report.md
-        echo "- Version: $(jq -r '.version' package.json)" >> validation-report.md
-        echo "- Node.js: ${{ matrix.node-version }}" >> validation-report.md
-        echo "- Date: $(date)" >> validation-report.md
-        echo "" >> validation-report.md
-        echo "## Validation Results" >> validation-report.md
-        echo "- ✅ Package configuration valid" >> validation-report.md
-        echo "- ✅ Build successful" >> validation-report.md
-        echo "- ✅ Tarball generation successful" >> validation-report.md
-        echo "- ✅ Dry-run publish successful" >> validation-report.md
-        echo "- ✅ Installation simulation successful" >> validation-report.md
+        {
+          echo "# NPM Package Validation Report"
+          echo "## Configuration"
+          echo "- Package: $(jq -r '.name' package.json)"
+          echo "- Version: $(jq -r '.version' package.json)"
+          echo "- Node.js: ${{ matrix.node-version }}"
+          echo "- Date: $(date)"
+          echo ""
+          echo "## Validation Results"
+          echo "- ✅ Package configuration valid"
+          echo "- ✅ Build successful"
+          echo "- ✅ Tarball generation successful"
+          echo "- ✅ Dry-run publish successful"
+          echo "- ✅ Installation simulation successful"
+        } > validation-report.md
       
     - name: Upload validation report
       uses: actions/upload-artifact@v4
