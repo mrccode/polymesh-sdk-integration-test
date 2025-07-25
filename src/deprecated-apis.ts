@@ -4,9 +4,10 @@
 
 export class Transaction {
   // submit() method removed - BREAKING CHANGE
-  
+
   async submitAndWait(): Promise<void> {
     // New implementation
-    console.log('Transaction submitted and waiting for confirmation');
+    // Transaction submitted and waiting for confirmation
+    return Promise.resolve();
   }
 }

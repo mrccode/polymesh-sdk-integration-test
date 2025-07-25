@@ -2,6 +2,6 @@
 export interface ErrorResponse {
   code: string;
   message: string;
-  context: Record<string, any>; // New field - BREAKING CHANGE
+  context: Record<string, unknown>; // New field - BREAKING CHANGE
   timestamp: Date; // New field - BREAKING CHANGE
 }
