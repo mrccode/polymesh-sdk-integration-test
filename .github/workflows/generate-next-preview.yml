@@ -74,6 +74,9 @@ jobs:
         run: |
           echo "Discovering breaking change branches..."
           
+          # Fetch all remote branches to ensure they're available locally
+          git fetch --all
+          
           # Find all bc-<number>-* branches and sort numerically
           BC_BRANCHES=$(git branch -r | grep -E 'origin/bc-[0-9]+-' | sed 's/origin\///' | while read branch; do
             number=$(echo "$branch" | sed -n 's/bc-\([0-9]\+\)-.*/\1/p')
@@ -114,7 +117,7 @@ jobs:
             echo "Processing branch: $branch"
             
             # Get commits from this branch not in develop
-            COMMITS=$(git rev-list --reverse develop..$branch)
+            COMMITS=$(git rev-list --reverse develop..origin/$branch)
             
             if [[ -z "$COMMITS" ]]; then
               echo "No commits found in $branch"
@@ -179,7 +182,7 @@ jobs:
           STALE_BRANCHES=""
           
           for branch in $BC_BRANCHES; do
-            COMMITS_BEHIND=$(git rev-list --count origin/$branch..origin/develop)
+            COMMITS_BEHIND=$(git rev-list --count origin/$branch..develop)
             
             if [[ $COMMITS_BEHIND -gt 50 ]]; then
               echo "⚠️ $branch is $COMMITS_BEHIND commits behind develop"
