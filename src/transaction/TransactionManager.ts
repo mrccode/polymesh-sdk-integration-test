@@ -49,6 +49,7 @@ export class TransactionManager {
         amount: validatedParams.amount,
         recipient: validatedParams.recipient,
         status: TransactionStatus.PENDING,
+        metadata: { source: 'api', version: '1.0' }, // Required by breaking change
         createdAt: new Date(),
         updatedAt: new Date(),
       };

@@ -23,6 +23,7 @@ export interface Transaction {
   amount: number;
   recipient: string;
   status: TransactionStatus;
+  metadata: Record<string, unknown>; // New required field - BREAKING CHANGE
   createdAt: Date;
   updatedAt: Date;
   // New fields may be added in breaking change tests
@@ -71,7 +72,7 @@ export interface Asset {
 }
 
 // API types - may be restructured in breaking change tests
-export interface APIResponse<T = any> {
+export interface APIResponse<T = unknown> {
   success: boolean;
   data?: T;
   error?: string;

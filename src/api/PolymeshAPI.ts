@@ -39,7 +39,7 @@ export class PolymeshAPI {
    * Gets paginated transactions
    * Pagination interface may change in breaking change tests
    */
-  async getTransactions(options: PaginationOptions): Promise<APIResponse<any[]>> {
+  async getTransactions(options: PaginationOptions): Promise<APIResponse<unknown[]>> {
     try {
       const allTransactions = this.transactionManager.getAllTransactions();
       const startIndex = (options.page - 1) * options.limit;
@@ -49,13 +49,13 @@ export class PolymeshAPI {
 
       if (options.sortBy) {
         sortedTransactions.sort((a, b) => {
-          const aValue = (a as any)[options.sortBy!];
-          const bValue = (b as any)[options.sortBy!];
+          const aValue = (a as unknown as Record<string, unknown>)[options.sortBy || 'id'];
+          const bValue = (b as unknown as Record<string, unknown>)[options.sortBy || 'id'];
 
           if (options.sortOrder === 'desc') {
-            return bValue > aValue ? 1 : -1;
+            return String(bValue) > String(aValue) ? 1 : -1;
           }
-          return aValue > bValue ? 1 : -1;
+          return String(aValue) > String(bValue) ? 1 : -1;
         });
       }
 
@@ -64,7 +64,7 @@ export class PolymeshAPI {
       return this.createResponse(paginatedTransactions);
     } catch (error) {
       const handledError = this.errorHandler.handle(error);
-      return this.createResponse([] as any[], handledError.message);
+      return this.createResponse([] as unknown[], handledError.message);
     }
   }
 
