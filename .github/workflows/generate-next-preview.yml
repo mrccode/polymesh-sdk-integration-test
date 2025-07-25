@@ -254,9 +254,11 @@ jobs:
           MAJOR_VERSION=$(echo "${{ steps.version.outputs.preview_version }}" | cut -d. -f1)
           NEXT_MAJOR=$((MAJOR_VERSION + 1))
           
-          # Create unique RC branch name with commit SHA and timestamp
+          # Create unique RC branch name with commit SHA and shared timestamp
+          # Extract timestamp from preview version to ensure consistency
           COMMIT_SHA="${{ github.sha }}"
-          TIMESTAMP=$(date +%Y%m%d%H%M%S)
+          PREVIEW_VERSION="${{ steps.version.outputs.preview_version }}"
+          TIMESTAMP=$(echo "$PREVIEW_VERSION" | grep -o '[0-9]\{14\}$')
           RC_BRANCH="release-candidate/v${NEXT_MAJOR}.0.0-${COMMIT_SHA:0:7}-${TIMESTAMP}"
           
           # Cleanup: Delete existing RC branch if it exists (ignore errors)
