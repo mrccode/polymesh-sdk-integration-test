@@ -253,9 +253,16 @@ jobs:
           # Only create release candidate if all breaking changes applied successfully
           MAJOR_VERSION=$(echo "${{ steps.version.outputs.preview_version }}" | cut -d. -f1)
           NEXT_MAJOR=$((MAJOR_VERSION + 1))
-          RC_BRANCH="release-candidate/v${NEXT_MAJOR}.0.0"
           
-          # Create and push release candidate branch
+          # Create unique RC branch name with commit SHA and timestamp
+          COMMIT_SHA="${{ github.sha }}"
+          TIMESTAMP=$(date +%Y%m%d%H%M%S)
+          RC_BRANCH="release-candidate/v${NEXT_MAJOR}.0.0-${COMMIT_SHA:0:7}-${TIMESTAMP}"
+          
+          # Cleanup: Delete existing RC branch if it exists (ignore errors)
+          git push origin --delete "$RC_BRANCH" 2>/dev/null || true
+          
+          # Create and push new release candidate branch
           git checkout -b "$RC_BRANCH"
           git push origin "$RC_BRANCH"
           
