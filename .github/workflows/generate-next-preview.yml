@@ -37,10 +37,6 @@ jobs:
   generate-preview:
     runs-on: ubuntu-latest
     
-    # Security: Use specific OS version for consistency
-    container:
-      image: ubuntu:22.04
-    
     outputs:
       preview_version: ${{ steps.version.outputs.preview_version }}
       breaking_changes_found: ${{ steps.discovery.outputs.found }}
@@ -48,15 +44,14 @@ jobs:
       release_candidate_created: ${{ steps.release_candidate.outputs.created }}
     
     steps:
-      # Security: Pin to specific commit SHA for immutability
       - name: Checkout repository
-        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
           token: ${{ secrets.BOT_PAT }}
       
       - name: Setup Node.js
-        uses: actions/setup-node@60edb5dd545a775178f52524783378180af0d1f8 # v4.0.2
+        uses: actions/setup-node@v4
         with:
           node-version: '20'
           registry-url: 'https://registry.npmjs.org'
@@ -270,7 +265,7 @@ jobs:
       
       - name: Create GitHub release
         if: steps.discovery.outputs.found == 'true'
-        uses: actions/create-release@0cb9c9b65d5d1901c1f53e5e66eaf4afd303e70e # v1.1.4
+        uses: actions/create-release@v1
         env:
           GITHUB_TOKEN: ${{ secrets.BOT_PAT }}
         with:
@@ -304,7 +299,7 @@ jobs:
       
       - name: Report conflicts
         if: steps.integration.outputs.conflicts == 'true'
-        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+        uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.BOT_PAT }}
           script: |
@@ -367,7 +362,7 @@ jobs:
       
       - name: Report stale branches
         if: steps.staleness.outputs.stale_found == 'true'
-        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+        uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.BOT_PAT }}
           script: |
@@ -405,7 +400,7 @@ jobs:
       
       - name: Comment on triggering commit
         if: github.event_name == 'push'
-        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+        uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.BOT_PAT }}
           script: |
@@ -462,9 +457,9 @@ jobs:
     
     steps:
       - name: Checkout
-        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+        uses: actions/checkout@v4
       
       - name: Run actionlint
-        uses: raven-actions/actionlint@1cc3092ef7b2f3ad4cc0b7e92077b0f8b7d39e5b # v1.1.0
+        uses: raven-actions/actionlint@v1
         with:
           files: .github/workflows/*.yml
