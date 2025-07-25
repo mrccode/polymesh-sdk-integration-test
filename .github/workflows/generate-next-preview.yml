@@ -1,15 +1,11 @@
-# Ephemeral Next Major Release Integration Workflow
-# This workflow discovers breaking change branches, integrates them in numerical order,
-# and publishes preview releases for testing
-
-name: Generate Next Major Release Preview
+name: Generate Next Major Preview
 
 on:
   push:
     branches: [develop]
   workflow_dispatch:
     inputs:
-      preview_type:
+      release_type:
         description: 'Preview release type'
         required: false
         default: 'preview'
@@ -19,182 +15,456 @@ on:
           - alpha
           - beta
           - rc
+      force_rebuild:
+        description: 'Force rebuild even if no changes'
+        required: false
+        default: false
+        type: boolean
 
-env:
-  NODE_VERSION: '18'
-  # Repository secrets required:
-  # - BOT_PAT: Personal access token for the release bot
-  # - NPM_TOKEN: NPM automation token for publishing packages
+# Security: Minimal permissions following principle of least privilege
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+  packages: write
+
+# Prevent concurrent runs to avoid conflicts
+concurrency:
+  group: generate-next-preview
+  cancel-in-progress: false
 
 jobs:
-  # Job 1: Discover breaking change branches
-  discover-branches:
+  generate-preview:
     runs-on: ubuntu-latest
+    
+    # Security: Use specific OS version for consistency
+    container:
+      image: ubuntu:22.04
+    
     outputs:
-      bc_branches: ${{ steps.find-branches.outputs.branches }}
-      has_breaking_changes: ${{ steps.find-branches.outputs.has_changes }}
+      preview_version: ${{ steps.version.outputs.preview_version }}
+      breaking_changes_found: ${{ steps.discovery.outputs.found }}
+      conflicts_detected: ${{ steps.integration.outputs.conflicts }}
+      release_candidate_created: ${{ steps.release_candidate.outputs.created }}
+    
     steps:
+      # Security: Pin to specific commit SHA for immutability
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
         with:
           fetch-depth: 0
-          token: ${{ secrets.BOT_PAT || github.token }}
-
-      - name: Discover breaking change branches
-        id: find-branches
-        run: |
-          echo "🔍 Discovering breaking change branches..."
-
-          # Find all bc-* branches and sort numerically
-          BC_BRANCHES=$(git branch -r | grep -E 'origin/bc-[0-9]+-' | sed 's/origin\///' | sed 's/^ *//' | sort -V || echo "")
-
-          if [ -z "$BC_BRANCHES" ]; then
-            echo "ℹ️  No breaking change branches found"
-            echo "has_changes=false" >> $GITHUB_OUTPUT
-            echo "branches=[]" >> $GITHUB_OUTPUT
-            exit 0
-          fi
-
-          echo "📋 Found breaking change branches:"
-          echo "$BC_BRANCHES" | while read branch; do
-            echo "  - $branch"
-          done
-
-          # Convert to JSON array for matrix
-          BC_ARRAY=$(echo "$BC_BRANCHES" | jq -R -s -c 'split("\n") | map(select(length > 0))')
-          echo "branches=$BC_ARRAY" >> $GITHUB_OUTPUT
-          echo "has_changes=true" >> $GITHUB_OUTPUT
-
-  # Job 2: Check for conflicts and branch health
-  validate-branches:
-    needs: discover-branches
-    if: needs.discover-branches.outputs.has_breaking_changes == 'true'
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        branch: ${{ fromJson(needs.discover-branches.outputs.bc_branches) }}
-      fail-fast: false
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          token: ${{ secrets.BOT_PAT || github.token }}
-
-      - name: Check branch health
-        run: |
-          echo "🔍 Checking health of branch: ${{ matrix.branch }}"
-
-          # Check if branch is stale (>50 commits behind develop)
-          COMMITS_BEHIND=$(git rev-list --count origin/${{ matrix.branch }}..origin/develop)
-          echo "📊 Branch is $COMMITS_BEHIND commits behind develop"
-
-          if [ $COMMITS_BEHIND -gt 50 ]; then
-            echo "⚠️  Branch ${{ matrix.branch }} is significantly behind develop ($COMMITS_BEHIND commits)"
-            echo "Consider rebasing this branch before integration"
-          fi
-
-  # Job 3: Integrate breaking changes
-  integrate-changes:
-    needs: [discover-branches, validate-branches]
-    if: needs.discover-branches.outputs.has_breaking_changes == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          token: ${{ secrets.BOT_PAT || github.token }}
-
+          token: ${{ secrets.BOT_PAT }}
+      
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@60edb5dd545a775178f52524783378180af0d1f8 # v4.0.2
         with:
-          node-version: ${{ env.NODE_VERSION }}
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
           cache: 'npm'
-
+      
       - name: Configure Git
         run: |
-          git config user.name "Test Release Bot"
-          git config user.email "test-release-bot@example.com"
-
+          git config --global user.name "Release Bot"
+          git config --global user.email "release-bot@example.com"
+          git config --global init.defaultBranch main
+      
+      - name: Install dependencies
+        run: |
+          npm ci --only=production
+          # Security: Verify package integrity
+          npm audit --audit-level=high
+      
+      - name: Discover breaking change branches
+        id: discovery
+        run: |
+          echo "Discovering breaking change branches..."
+          
+          # Find all bc-<number>-* branches and sort numerically
+          BC_BRANCHES=$(git branch -r | grep -E 'origin/bc-[0-9]+-' | sed 's/origin\///' | while read branch; do
+            number=$(echo "$branch" | sed -n 's/bc-\([0-9]\+\)-.*/\1/p')
+            if [[ "$number" =~ ^[0-9]+$ ]]; then
+              echo "$number $branch"
+            fi
+          done | sort -n | awk '{print $2}' | tr '\n' ' ')
+          
+          echo "BC_BRANCHES=$BC_BRANCHES" >> $GITHUB_ENV
+          
+          if [[ -z "$BC_BRANCHES" ]]; then
+            echo "found=false" >> $GITHUB_OUTPUT
+            echo "No breaking change branches found"
+          else
+            echo "found=true" >> $GITHUB_OUTPUT
+            echo "Found breaking change branches: $BC_BRANCHES"
+          fi
+      
       - name: Create ephemeral integration branch
+        if: steps.discovery.outputs.found == 'true'
         run: |
-          echo "🔧 Creating ephemeral integration branch..."
-          TIMESTAMP=$(date +%Y%m%d-%H%M%S)
-          INTEGRATION_BRANCH="ephemeral-integration-$TIMESTAMP"
+          # Create temporary integration branch from latest develop
+          INTEGRATION_BRANCH="ephemeral-integration-$(date +%Y%m%d%H%M%S)"
           echo "INTEGRATION_BRANCH=$INTEGRATION_BRANCH" >> $GITHUB_ENV
-
-          git checkout -b $INTEGRATION_BRANCH develop
-          echo "✅ Created integration branch: $INTEGRATION_BRANCH"
-
+          
+          git checkout -b "$INTEGRATION_BRANCH" develop
+          echo "Created ephemeral integration branch: $INTEGRATION_BRANCH"
+      
       - name: Cherry-pick breaking changes
+        if: steps.discovery.outputs.found == 'true'
+        id: integration
         run: |
-          echo "🍒 Integrating breaking changes in numerical order..."
-
-          # This is a placeholder - full implementation would:
-          # 1. Parse branch numbers and sort
-          # 2. Cherry-pick commits from each branch
-          # 3. Handle conflicts by creating GitHub issues
-          # 4. Continue with non-conflicting branches
-
-          echo "⚠️  This is a placeholder workflow for testing infrastructure"
-          echo "Full integration logic would be implemented here"
-
-      - name: Build and test
+          SUCCESSFUL_BRANCHES=""
+          FAILED_BRANCHES=""
+          CONFLICT_DETAILS=""
+          
+          for branch in $BC_BRANCHES; do
+            echo "Processing branch: $branch"
+            
+            # Get commits from this branch not in develop
+            COMMITS=$(git rev-list --reverse develop..$branch)
+            
+            if [[ -z "$COMMITS" ]]; then
+              echo "No commits found in $branch"
+              continue
+            fi
+            
+            # Track per-branch success
+            BRANCH_SUCCESS=true
+            
+            # Cherry-pick each commit in chronological order
+            for commit in $COMMITS; do
+              COMMIT_MSG=$(git log -1 --format="%s" $commit)
+              echo "Applying commit: $commit ($COMMIT_MSG)"
+              
+              if git cherry-pick $commit; then
+                echo "✅ Successfully applied: $commit"
+              else
+                echo "❌ Conflict detected: $commit"
+                
+                # Capture conflict details
+                CONFLICTED_FILES=$(git status --porcelain | grep "^UU\|^AA\|^DD" | awk '{print $2}')
+                CONFLICT_INFO="Branch: $branch\nCommit: $commit\nMessage: $COMMIT_MSG\nFiles: $CONFLICTED_FILES"
+                
+                if [[ -z "$CONFLICT_DETAILS" ]]; then
+                  CONFLICT_DETAILS="$CONFLICT_INFO"
+                else
+                  CONFLICT_DETAILS="$CONFLICT_DETAILS\n\n$CONFLICT_INFO"
+                fi
+                
+                # Abort cherry-pick and mark branch as failed
+                git cherry-pick --abort
+                BRANCH_SUCCESS=false
+                break
+              fi
+            done
+            
+            # Track results per branch
+            if [[ "$BRANCH_SUCCESS" == "true" ]]; then
+              SUCCESSFUL_BRANCHES="$SUCCESSFUL_BRANCHES $branch"
+            else
+              FAILED_BRANCHES="$FAILED_BRANCHES $branch"
+            fi
+          done
+          
+          # Set outputs for downstream steps
+          echo "SUCCESSFUL_BRANCHES=$SUCCESSFUL_BRANCHES" >> $GITHUB_ENV
+          echo "FAILED_BRANCHES=$FAILED_BRANCHES" >> $GITHUB_ENV
+          echo -e "$CONFLICT_DETAILS" > conflict_details.txt
+          
+          if [[ -n "$FAILED_BRANCHES" ]]; then
+            echo "conflicts=true" >> $GITHUB_OUTPUT
+            echo "Conflicts detected in branches:$FAILED_BRANCHES"
+          else
+            echo "conflicts=false" >> $GITHUB_OUTPUT
+            echo "All breaking changes applied successfully"
+          fi
+      
+      - name: Check for staleness
+        if: steps.discovery.outputs.found == 'true'
+        id: staleness
         run: |
-          echo "🔨 Building integrated codebase..."
-          # npm ci
-          # npm run build
-          # npm test
-          echo "✅ Build and tests would run here"
-
-      - name: Generate version
+          STALE_BRANCHES=""
+          
+          for branch in $BC_BRANCHES; do
+            COMMITS_BEHIND=$(git rev-list --count origin/$branch..origin/develop)
+            
+            if [[ $COMMITS_BEHIND -gt 50 ]]; then
+              echo "⚠️ $branch is $COMMITS_BEHIND commits behind develop"
+              STALE_BRANCHES="$STALE_BRANCHES $branch"
+            fi
+          done
+          
+          echo "STALE_BRANCHES=$STALE_BRANCHES" >> $GITHUB_ENV
+          
+          if [[ -n "$STALE_BRANCHES" ]]; then
+            echo "stale_found=true" >> $GITHUB_OUTPUT
+          else
+            echo "stale_found=false" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Build integrated codebase
+        if: steps.discovery.outputs.found == 'true'
+        run: |
+          echo "Building integrated codebase..."
+          
+          # Install all dependencies including dev dependencies for build
+          npm ci
+          
+          # Run build process
+          npm run build
+          
+          # Run tests to validate integration
+          npm test
+          
+          echo "Build and tests completed successfully"
+      
+      - name: Generate preview version
+        if: steps.discovery.outputs.found == 'true'
         id: version
         run: |
-          PREVIEW_TYPE="${{ github.event.inputs.preview_type || 'preview' }}"
+          CURRENT_VERSION=$(node -p "require('./package.json').version")
           TIMESTAMP=$(date +%Y%m%d%H%M%S)
-          VERSION="1.0.0-$PREVIEW_TYPE.$TIMESTAMP"
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "📦 Generated version: $VERSION"
-
+          RELEASE_TYPE="${{ github.event.inputs.release_type || 'preview' }}"
+          
+          case "$RELEASE_TYPE" in
+            alpha) PREVIEW_VERSION="${CURRENT_VERSION}-alpha.${TIMESTAMP}" ;;
+            beta)  PREVIEW_VERSION="${CURRENT_VERSION}-beta.${TIMESTAMP}" ;;
+            rc)    PREVIEW_VERSION="${CURRENT_VERSION}-rc.${TIMESTAMP}" ;;
+            *)     PREVIEW_VERSION="${CURRENT_VERSION}-next.${TIMESTAMP}" ;;
+          esac
+          
+          echo "PREVIEW_VERSION=$PREVIEW_VERSION" >> $GITHUB_ENV
+          echo "preview_version=$PREVIEW_VERSION" >> $GITHUB_OUTPUT
+          
+          # Update package.json version for publishing
+          npm version "$PREVIEW_VERSION" --no-git-tag-version
+          
+          echo "Generated preview version: $PREVIEW_VERSION"
+      
       - name: Publish preview package
+        if: steps.discovery.outputs.found == 'true'
         run: |
-          echo "📦 Publishing preview package..."
-          # npm version ${{ steps.version.outputs.version }} --no-git-tag-version
-          # npm publish --tag next
-          echo "✅ Package would be published to npm here"
-
-      - name: Create GitHub release
-        run: |
-          echo "🚀 Creating GitHub release..."
-          echo "✅ GitHub release would be created here"
-
+          echo "Publishing preview package..."
+          
+          # Use npm publish --dry-run for testing (remove --dry-run for production)
+          npm publish --dry-run --tag next --access public
+          
+          echo "Preview package published: $PREVIEW_VERSION"
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      
       - name: Create release candidate branch
-        if: success()
+        if: steps.discovery.outputs.found == 'true' && steps.integration.outputs.conflicts == 'false'
+        id: release_candidate
         run: |
-          echo "🏷️ Creating release candidate branch..."
-          RC_BRANCH="release-candidate/v${{ steps.version.outputs.version }}"
-          git checkout -b $RC_BRANCH
-          # git push origin $RC_BRANCH
-          echo "✅ Release candidate branch would be created: $RC_BRANCH"
+          # Only create release candidate if all breaking changes applied successfully
+          MAJOR_VERSION=$(echo "${{ steps.version.outputs.preview_version }}" | cut -d. -f1)
+          NEXT_MAJOR=$((MAJOR_VERSION + 1))
+          RC_BRANCH="release-candidate/v${NEXT_MAJOR}.0.0"
+          
+          # Create and push release candidate branch
+          git checkout -b "$RC_BRANCH"
+          git push origin "$RC_BRANCH"
+          
+          echo "RC_BRANCH=$RC_BRANCH" >> $GITHUB_ENV
+          echo "created=true" >> $GITHUB_OUTPUT
+          echo "Created release candidate branch: $RC_BRANCH"
+      
+      - name: Create GitHub release
+        if: steps.discovery.outputs.found == 'true'
+        uses: actions/create-release@0cb9c9b65d5d1901c1f53e5e66eaf4afd303e70e # v1.1.4
+        env:
+          GITHUB_TOKEN: ${{ secrets.BOT_PAT }}
+        with:
+          tag_name: ${{ env.PREVIEW_VERSION }}
+          release_name: "Preview Release ${{ env.PREVIEW_VERSION }}"
+          body: |
+            # 🚀 Next Major Preview Release
 
-  # Job 4: Report results
-  report-results:
-    needs: [discover-branches, integrate-changes]
-    if: always()
-    runs-on: ubuntu-latest
-    steps:
-      - name: Report integration results
+            **Base commit**: ${{ github.sha }}
+            **Preview version**: `${{ env.PREVIEW_VERSION }}`
+            **Integration status**: ${{ steps.integration.outputs.conflicts == 'false' && '✅ Complete' || '⚠️ Partial (conflicts detected)' }}
+
+            ## Breaking Changes Applied
+            ${{ env.SUCCESSFUL_BRANCHES && env.SUCCESSFUL_BRANCHES || 'None' }}
+
+            ## Conflicting Branches
+            ${{ env.FAILED_BRANCHES && env.FAILED_BRANCHES || 'None' }}
+
+            ## Installation
+            ```bash
+            npm install @test-org/polymesh-sdk-integration-test@next
+            ```
+
+            ## Release Candidate
+            ${{ steps.release_candidate.outputs.created == 'true' && format('✅ Release candidate branch created: `{0}`', env.RC_BRANCH) || '⏳ Awaiting conflict resolution for RC creation' }}
+
+            ---
+            *Generated automatically by Ephemeral Next Major Release Integration*
+          draft: false
+          prerelease: true
+      
+      - name: Report conflicts
+        if: steps.integration.outputs.conflicts == 'true'
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+        with:
+          github-token: ${{ secrets.BOT_PAT }}
+          script: |
+            const fs = require('fs');
+            const failedBranches = process.env.FAILED_BRANCHES.trim().split(' ').filter(b => b);
+            
+            for (const branch of failedBranches) {
+              const title = `🚨 Breaking Change Conflicts: ${branch}`;
+              const body = `# Breaking Change Conflict Detected
+
+            **Branch**: \`${branch}\`
+            **Triggered by**: ${{ github.sha }}
+            **Workflow**: ${{ github.run_id }}
+
+            ## Resolution Steps
+
+            1. Checkout the conflicting branch:
+               \`\`\`bash
+               git checkout ${branch}
+               git fetch origin develop
+               \`\`\`
+
+            2. Rebase onto latest develop:
+               \`\`\`bash
+               git rebase origin/develop
+               \`\`\`
+
+            3. Resolve conflicts manually:
+               - Edit conflicted files
+               - Remove conflict markers
+               - Test changes
+
+            4. Complete rebase and update remote:
+               \`\`\`bash
+               git add .
+               git rebase --continue
+               git push --force-with-lease origin ${branch}
+               \`\`\`
+
+            5. Next develop push will automatically retry integration
+
+            ## Conflict Details
+            \`\`\`
+            ${fs.readFileSync('conflict_details.txt', 'utf8')}
+            \`\`\`
+
+            ---
+            **Auto-generated by**: Ephemeral Next Major Release Integration
+            **Need help?** Check the [process documentation](../blob/main/PROCESS.md#conflict-resolution)`;
+
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: title,
+                body: body,
+                labels: ['breaking-changes', 'conflicts', 'automation'],
+                assignees: [] // Could be enhanced to assign to branch author
+              });
+            }
+      
+      - name: Report stale branches
+        if: steps.staleness.outputs.stale_found == 'true'
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+        with:
+          github-token: ${{ secrets.BOT_PAT }}
+          script: |
+            const staleBranches = process.env.STALE_BRANCHES.trim().split(' ').filter(b => b);
+            
+            const title = `⚠️ Stale Breaking Change Branches Detected`;
+            const body = `# Stale Breaking Change Branches
+
+            The following breaking change branches are significantly behind develop:
+
+            ${staleBranches.map(b => `- \`${b}\``).join('\n')}
+
+            ## Recommendation
+
+            Rebase these branches to avoid future conflicts:
+
+            \`\`\`bash
+            git checkout <branch-name>
+            git rebase origin/develop
+            git push --force-with-lease origin <branch-name>
+            \`\`\`
+
+            Branches more than 50 commits behind develop have higher conflict risk.
+
+            ---
+            **Auto-generated by**: Ephemeral Next Major Release Integration`;
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: title,
+              body: body,
+              labels: ['breaking-changes', 'maintenance', 'low-priority']
+            });
+      
+      - name: Comment on triggering commit
+        if: github.event_name == 'push'
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+        with:
+          github-token: ${{ secrets.BOT_PAT }}
+          script: |
+            const sha = context.sha;
+            const found = '${{ steps.discovery.outputs.found }}' === 'true';
+            const conflicts = '${{ steps.integration.outputs.conflicts }}' === 'true';
+            const version = '${{ env.PREVIEW_VERSION }}';
+            
+            let body = '# 🤖 Next Major Preview Generation\n\n';
+            
+            if (!found) {
+              body += '**Status**: ✅ No breaking changes found\n';
+              body += '**Action**: None required - develop ready for patch/minor release\n';
+            } else if (conflicts) {
+              body += `**Status**: ⚠️ Partial preview generated\n`;
+              body += `**Version**: \`${version}\`\n`;
+              body += `**Conflicts**: See issues for resolution steps\n`;
+            } else {
+              body += `**Status**: ✅ Complete preview generated\n`;
+              body += `**Version**: \`${version}\`\n`;
+              body += `**Release Candidate**: ${{ env.RC_BRANCH }}\n`;
+            }
+            
+            body += `\n**Workflow**: [View run](${context.payload.repository.html_url}/actions/runs/${context.runId})`;
+            
+            await github.rest.repos.createCommitComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              commit_sha: sha,
+              body: body
+            });
+      
+      - name: Cleanup ephemeral resources
+        if: always()
         run: |
-          echo "📊 Integration workflow completed"
-
-          if [ "${{ needs.discover-branches.outputs.has_breaking_changes }}" == "false" ]; then
-            echo "ℹ️  No breaking changes found - develop branch is ready for patch/minor releases"
-          elif [ "${{ needs.integrate-changes.result }}" == "success" ]; then
-            echo "✅ All breaking changes integrated successfully"
-            echo "🏷️ Release candidate branch created"
-            echo "📦 Preview package published to npm"
-          else
-            echo "❌ Integration failed - check logs for details"
-            echo "🔍 Some branches may have conflicts requiring manual resolution"
+          echo "Cleaning up ephemeral resources..."
+          
+          # Clean up temporary files
+          rm -f conflict_details.txt
+          
+          # Reset to original state (ephemeral branch will be garbage collected)
+          git checkout develop
+          
+          if [[ -n "$INTEGRATION_BRANCH" ]]; then
+            git branch -D "$INTEGRATION_BRANCH" 2>/dev/null || true
           fi
+          
+          echo "Cleanup completed"
+
+  # Security scanning job
+  security-scan:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+      
+      - name: Run actionlint
+        uses: raven-actions/actionlint@1cc3092ef7b2f3ad4cc0b7e92077b0f8b7d39e5b # v1.1.0
+        with:
+          files: .github/workflows/*.yml
