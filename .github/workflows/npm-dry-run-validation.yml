@@ -1,0 +1,154 @@
+name: NPM Dry-Run Validation
+
+on:
+  push:
+    branches: [develop]
+  pull_request:
+    branches: [develop]
+  workflow_dispatch:
+
+jobs:
+  validate-npm-package:
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        node-version: [18, 20, 21]
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node-version }}
+        cache: 'npm'
+        
+    - name: Install dependencies
+      run: npm ci
+      
+    - name: Run linting
+      run: npm run lint
+      
+    - name: Run tests
+      run: npm test -- --run
+      
+    - name: Build package
+      run: npm run build
+      
+    - name: Validate package configuration
+      run: |
+        echo "Validating package.json configuration..."
+        if ! grep -q '"name": "@test-org/polymesh-sdk-integration-test"' package.json; then
+          echo "Error: Package name not properly configured"
+          exit 1
+        fi
+        echo "✅ Package configuration valid"
+      
+    - name: Test npm pack
+      run: |
+        echo "Testing npm pack..."
+        npm pack --dry-run
+        echo "✅ npm pack dry-run successful"
+        
+    - name: Generate and inspect tarball
+      run: |
+        echo "Generating actual tarball..."
+        npm pack
+        TARBALL=$(ls *.tgz | head -1)
+        echo "Tarball created: $TARBALL"
+        
+        echo "Inspecting tarball contents..."
+        tar -tzf "$TARBALL" | head -20
+        
+        echo "Validating required files..."
+        if ! tar -tzf "$TARBALL" | grep -q "package/dist/"; then
+          echo "Error: Built files not found in tarball"
+          exit 1
+        fi
+        
+        echo "✅ Tarball validation successful"
+      
+    - name: Test npm publish dry-run
+      run: |
+        echo "Testing npm publish --dry-run..."
+        npm publish --dry-run
+        echo "✅ npm publish dry-run successful"
+      
+    - name: Simulate package installation
+      run: |
+        echo "Testing tarball installation..."
+        TARBALL=$(ls *.tgz | head -1)
+        npm install "./$TARBALL" --dry-run
+        echo "✅ Package installation simulation successful"
+      
+    - name: Run comprehensive validation
+      run: |
+        echo "Running comprehensive validation script..."
+        chmod +x scripts/validate-npm-package.sh
+        ./scripts/validate-npm-package.sh
+        echo "✅ All validations passed"
+      
+    - name: Upload tarball as artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: package-tarball-node-${{ matrix.node-version }}
+        path: '*.tgz'
+        retention-days: 7
+      
+    - name: Generate validation report
+      run: |
+        echo "# NPM Package Validation Report" > validation-report.md
+        echo "## Configuration" >> validation-report.md
+        echo "- Package: $(jq -r '.name' package.json)" >> validation-report.md
+        echo "- Version: $(jq -r '.version' package.json)" >> validation-report.md
+        echo "- Node.js: ${{ matrix.node-version }}" >> validation-report.md
+        echo "- Date: $(date)" >> validation-report.md
+        echo "" >> validation-report.md
+        echo "## Validation Results" >> validation-report.md
+        echo "- ✅ Package configuration valid" >> validation-report.md
+        echo "- ✅ Build successful" >> validation-report.md
+        echo "- ✅ Tarball generation successful" >> validation-report.md
+        echo "- ✅ Dry-run publish successful" >> validation-report.md
+        echo "- ✅ Installation simulation successful" >> validation-report.md
+      
+    - name: Upload validation report
+      uses: actions/upload-artifact@v4
+      with:
+        name: validation-report-node-${{ matrix.node-version }}
+        path: validation-report.md
+        retention-days: 7
+
+  integration-workflow-test:
+    runs-on: ubuntu-latest
+    needs: validate-npm-package
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 20
+        cache: 'npm'
+        
+    - name: Test integration with main workflow
+      run: |
+        echo "Testing integration with generate-next-preview workflow..."
+        
+        # Simulate the npm publish step that would be in the main workflow
+        npm ci
+        npm run build
+        
+        # This is how the main workflow should handle npm publishing
+        if npm publish --dry-run; then
+          echo "✅ Integration test: Dry-run publish successful"
+          echo "Main workflow can safely use npm publish --dry-run"
+        else
+          echo "❌ Integration test failed"
+          exit 1
+        fi
+        
+        echo "✅ Integration test passed"

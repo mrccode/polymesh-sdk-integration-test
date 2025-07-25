@@ -34,8 +34,15 @@
     "audit:ci": "audit-ci --moderate",
     "clean": "rm -rf dist coverage .nyc_output",
     "prepare": "husky install",
-    "prepublishOnly": "npm run clean && npm run build && npm run test && npm run lint",
-    "release:dry": "npm publish --dry-run"
+    "prepublishOnly": "npm run clean && npm run build && npm run test -- --run && npm run lint",
+    "release:dry": "npm publish --dry-run",
+    "release:validate": "npm pack --dry-run",
+    "release:preview": "npm run build && npm pack && echo 'Package created for preview release validation'",
+    "release:mock": "npm run release:dry && echo 'Mock publish completed successfully'",
+    "validate:package": "./scripts/validate-npm-package.sh",
+    "validate:contents": "./scripts/test-package-contents.sh",
+    "validate:build": "./scripts/verify-build-process.sh",
+    "validate:all": "npm run validate:build && npm run validate:package && npm run validate:contents"
   },
   "keywords": [
     "typescript",
