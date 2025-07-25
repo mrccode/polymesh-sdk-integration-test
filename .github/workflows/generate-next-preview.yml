@@ -264,7 +264,7 @@ jobs:
           echo "Created release candidate branch: $RC_BRANCH"
       
       - name: Create GitHub release
-        if: steps.discovery.outputs.found == 'true'
+        if: steps.discovery.outputs.found == 'true' && steps.integration.outputs.conflicts == 'false'
         uses: actions/create-release@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -415,8 +415,8 @@ jobs:
               body += '**Status**: ✅ No breaking changes found\n';
               body += '**Action**: None required - develop ready for patch/minor release\n';
             } else if (conflicts) {
-              body += `**Status**: ⚠️ Partial preview generated\n`;
-              body += `**Version**: \`${version}\`\n`;
+              body += `**Status**: ⚠️ Conflicts detected - no release created\n`;
+              body += `**Action**: Resolve conflicts in breaking change branches\n`;
               body += `**Conflicts**: See issues for resolution steps\n`;
             } else {
               body += `**Status**: ✅ Complete preview generated\n`;
