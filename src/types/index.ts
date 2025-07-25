@@ -23,6 +23,7 @@ export interface Transaction {
   amount: number;
   recipient: string;
   status: TransactionStatus;
+  metadata: Record<string, any>; // New required field - BREAKING CHANGE
   createdAt: Date;
   updatedAt: Date;
   // New fields may be added in breaking change tests
