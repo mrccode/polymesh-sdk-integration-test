@@ -65,7 +65,7 @@ jobs:
       
       - name: Install dependencies
         run: |
-          npm ci --only=production
+          npm ci
           # Security: Verify package integrity
           npm audit --audit-level=high
       
@@ -199,9 +199,6 @@ jobs:
         if: steps.discovery.outputs.found == 'true'
         run: |
           echo "Building integrated codebase..."
-          
-          # Install all dependencies including dev dependencies for build
-          npm ci
           
           # Run build process
           npm run build
