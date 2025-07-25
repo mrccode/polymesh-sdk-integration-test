@@ -77,8 +77,10 @@ describe('PolymeshAPI', () => {
 
       expect(response.success).toBe(true);
       expect(response.data).toHaveLength(2);
-      expect(response.data?.[0].amount).toBe(2000);
-      expect(response.data?.[1].amount).toBe(1000);
+      if (response.data) {
+        expect(response.data[0]?.amount).toBe(2000);
+        expect(response.data[1]?.amount).toBe(1000);
+      }
     });
 
     it('should handle pagination correctly', async () => {

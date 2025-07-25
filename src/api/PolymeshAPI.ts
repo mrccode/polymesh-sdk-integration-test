@@ -1,4 +1,4 @@
-import { APIResponse, PaginationOptions } from '../types/index.js';
+import { APIResponse, PaginationOptions, Transaction } from '../types/index.js';
 import { TransactionManager } from '../transaction/TransactionManager.js';
 import { AssetManager } from '../asset/AssetManager.js';
 import { ErrorHandler } from '../utils/ErrorHandler.js';
@@ -39,7 +39,7 @@ export class PolymeshAPI {
    * Gets paginated transactions
    * Pagination interface may change in breaking change tests
    */
-  async getTransactions(options: PaginationOptions): Promise<APIResponse<unknown[]>> {
+  async getTransactions(options: PaginationOptions): Promise<APIResponse<Transaction[]>> {
     try {
       const allTransactions = this.transactionManager.getAllTransactions();
       const startIndex = (options.page - 1) * options.limit;
@@ -64,7 +64,7 @@ export class PolymeshAPI {
       return this.createResponse(paginatedTransactions);
     } catch (error) {
       const handledError = this.errorHandler.handle(error);
-      return this.createResponse([] as unknown[], handledError.message);
+      return this.createResponse([] as Transaction[], handledError.message);
     }
   }
 
