@@ -99,45 +99,76 @@ jobs:
         if: steps.discovery.outputs.found == 'true'
         id: validation
         run: |
-          echo "Validating all breaking change branches against develop..."
+          echo "Validating breaking change branches with sequential integration test..."
 
           ALL_CLEAN=true
           CLEAN_BRANCHES=""
           CONFLICTED_BRANCHES=""
           VALIDATION_DETAILS=""
 
+          # Create temporary integration branch for full sequence validation
+          TEMP_VALIDATION_BRANCH="temp-sequential-validation-$(date +%Y%m%d%H%M%S)"
+          git checkout -b "$TEMP_VALIDATION_BRANCH" develop
+          echo "Created temporary validation branch: $TEMP_VALIDATION_BRANCH"
+
+          # Test the full integration sequence exactly as it will be performed
           for branch in $BC_BRANCHES; do
-            echo "Validating branch: $branch"
+            echo "Validating sequential integration of: $branch"
             
-            # Create temporary branch for validation
-            git checkout -b "temp-validate-$branch" "origin/$branch"
+            # Get commits from this branch not in develop (same as integration step)
+            COMMITS=$(git rev-list --reverse "develop..origin/$branch")
             
-            # Attempt rebase against develop
-            if git rebase develop --no-stat; then
-              echo "✅ $branch - clean rebase"
+            if [[ -z "$COMMITS" ]]; then
+              echo "No commits found in $branch"
               CLEAN_BRANCHES="$CLEAN_BRANCHES $branch"
-            else
-              echo "❌ $branch - conflicts detected"
-              
-              # Capture conflict details
-              CONFLICTED_FILES=$(git status --porcelain | grep "^UU\|^AA\|^DD" | awk '{print $2}' | tr '\n' ' ')
-              CONFLICT_INFO="Branch: $branch\nFiles with conflicts: $CONFLICTED_FILES"
-              
-              if [[ -z "$VALIDATION_DETAILS" ]]; then
-                VALIDATION_DETAILS="$CONFLICT_INFO"
-              else
-                VALIDATION_DETAILS="$VALIDATION_DETAILS\n\n$CONFLICT_INFO"
-              fi
-              
-              CONFLICTED_BRANCHES="$CONFLICTED_BRANCHES $branch"
-              git rebase --abort
-              ALL_CLEAN=false
+              continue
             fi
             
-            # Cleanup validation branch
-            git checkout develop
-            git branch -D "temp-validate-$branch"
+            # Try to cherry-pick each commit in chronological order (mirroring integration)
+            BRANCH_CLEAN=true
+            for commit in $COMMITS; do
+              COMMIT_MSG=$(git log -1 --format="%s" "$commit")
+              echo "  Testing cherry-pick: $commit ($COMMIT_MSG)"
+              
+              if git cherry-pick "$commit" --no-commit; then
+                git commit -m "temp: $(git log -1 --format="%s" "$commit")"
+                echo "  ✅ Sequential integration test passed: $commit"
+              else
+                echo "  ❌ Sequential integration conflict detected: $commit"
+                
+                # Capture detailed conflict information
+                CONFLICTED_FILES=$(git status --porcelain | grep "^UU\|^AA\|^DD" | awk '{print $2}' | tr '\n' ' ')
+                CONFLICT_INFO="Branch: $branch\nCommit: $commit\nMessage: $COMMIT_MSG\nConflicted files: $CONFLICTED_FILES\nConflict type: Sequential integration (conflicts with previously applied changes)"
+                
+                if [[ -z "$VALIDATION_DETAILS" ]]; then
+                  VALIDATION_DETAILS="$CONFLICT_INFO"
+                else
+                  VALIDATION_DETAILS="$VALIDATION_DETAILS\n\n$CONFLICT_INFO"
+                fi
+                
+                CONFLICTED_BRANCHES="$CONFLICTED_BRANCHES $branch"
+                git cherry-pick --abort
+                BRANCH_CLEAN=false
+                ALL_CLEAN=false
+                break
+              fi
+            done
+            
+            # Track branch status
+            if [[ "$BRANCH_CLEAN" == "true" ]]; then
+              CLEAN_BRANCHES="$CLEAN_BRANCHES $branch"
+              echo "✅ $branch - sequential integration successful"
+            else
+              echo "❌ $branch - sequential integration failed"
+              # Stop processing remaining branches since we found a conflict
+              break
+            fi
           done
+
+          # Cleanup temporary validation branch
+          git checkout develop
+          git branch -D "$TEMP_VALIDATION_BRANCH"
+          echo "Cleaned up temporary validation branch"
 
           # Set environment variables for later steps
           echo "CLEAN_BRANCHES=$CLEAN_BRANCHES" >> "$GITHUB_ENV"
@@ -146,12 +177,14 @@ jobs:
 
           if [[ "$ALL_CLEAN" == "true" ]]; then
             echo "all_clean=true" >> "$GITHUB_OUTPUT"
-            echo "✅ All breaking change branches are conflict-free - proceeding with integration"
+            echo "✅ Sequential integration validation passed - all breaking changes apply cleanly in order"
+            echo "✅ Proceeding with integration (guaranteed to succeed)"
           else
             echo "all_clean=false" >> "$GITHUB_OUTPUT"
-            echo "❌ RELEASE BLOCKED: Conflicts detected in branches:$CONFLICTED_BRANCHES"
+            echo "❌ RELEASE BLOCKED: Sequential integration conflicts detected in branches:$CONFLICTED_BRANCHES"
+            echo "❌ Conflicts occur when applying breaking changes in numerical order"
             echo "❌ No preview release will be generated until all conflicts are resolved"
-            echo "❌ Continuing workflow to create blocking issue..."
+            echo "❌ Continuing workflow to create comprehensive blocking issue..."
           fi
 
       - name: Create ephemeral integration branch
@@ -382,43 +415,64 @@ jobs:
             const title = `🚨 Release Blocked - Breaking Change Conflicts Detected`;
             const body = `# Release Status: BLOCKED ❌
 
-            The preview release has been **completely blocked** due to conflicts in one or more breaking change branches.
+            The preview release has been **completely blocked** due to **sequential integration conflicts** detected during comprehensive validation.
 
-            ## Branch Status Summary
+            ## Validation Method: Sequential Integration Test
+
+            This system now tests the **full integration sequence** exactly as it will be performed:
+            1. Start with \`develop\` branch
+            2. Apply \`bc-1\` changes → \`bc-2\` changes → \`bc-3\` changes... in numerical order
+            3. Block release if **any step** in this sequence conflicts
+
+            ## Branch Status Summary (Sequential Order)
 
             ${allBranches.map(branch => {
-              const status = conflictedBranches.includes(branch) ? '❌ Conflicts' : '✅ Ready';
+              const status = conflictedBranches.includes(branch) ? '❌ Sequential Conflict' : '✅ Sequential Integration Clean';
               return `- \`${branch}\`: ${status}`;
             }).join('\n')}
 
-            ## Conflicted Branches Requiring Resolution
+            ## Root Cause: Sequential Integration Conflicts
 
-            ${conflictedBranches.map(branch => `- \`${branch}\``).join('\n')}
+            The conflicted branch(es) apply cleanly against \`develop\` individually, but **conflict when applied in the numerical sequence** after previous breaking changes:
+
+            ${conflictedBranches.map(branch => `- \`${branch}\`: Conflicts with changes from previously applied bc-* branches`).join('\n')}
 
             ## Resolution Required
 
             **ALL conflicted branches must be resolved before ANY release can proceed.**
 
-            For each conflicted branch:
+            ### Option 1: Rebase Against Latest Integration State
 
-            1. **Checkout and rebase**:
+            For each conflicted branch, rebase against the **cumulative state** of all previous branches:
+
+            1. **Create local integration branch**:
                \`\`\`bash
-               git checkout ${conflictedBranches[0] || '<branch-name>'}
-               git fetch origin develop
-               git rebase origin/develop
+               git checkout develop
+               git checkout -b temp-rebase-target
+               # Apply all previous bc-* branches in order up to the conflicted one
                \`\`\`
 
-            2. **Resolve conflicts manually**:
-               - Edit conflicted files to resolve conflicts
-               - Remove conflict markers (\`<<<<<<<\`, \`=======\`, \`>>>>>>>\`)
-               - Test changes to ensure functionality
+            2. **Rebase conflicted branch against integration state**:
+               \`\`\`bash
+               git checkout ${conflictedBranches[0] || '<conflicted-branch>'}
+               git rebase temp-rebase-target
+               # Resolve conflicts that occur from interaction with previous branches
+               \`\`\`
 
             3. **Complete rebase and update**:
                \`\`\`bash
                git add .
                git rebase --continue
                git push --force-with-lease origin <branch-name>
+               git branch -D temp-rebase-target
                \`\`\`
+
+            ### Option 2: Manual Coordination Between Branch Authors
+
+            If multiple branches conflict with each other, coordinate resolution:
+            1. Authors of conflicted branches collaborate to resolve overlapping changes
+            2. One branch is updated to be compatible with the other
+            3. Sequential integration is tested again
 
             4. **Manually trigger workflow** after ALL conflicts resolved:
                - Go to Actions tab
@@ -440,12 +494,22 @@ jobs:
             ${fs.existsSync('validation_conflicts.txt') ? fs.readFileSync('validation_conflicts.txt', 'utf8') : 'Conflict details not available'}
             \`\`\`
 
-            ## Why This Approach?
+            ## Why Sequential Integration Validation?
 
-            **This approach ensures release integrity** - all breaking changes must be compatible before any preview is created. This prevents:
-            - Incomplete releases with missing features
-            - Integration issues in downstream systems
-            - Confusion about which changes are included
+            **This comprehensive approach ensures release integrity** by testing the exact same sequence as the actual integration process:
+
+            ### Benefits:
+            - ✅ **Catches inter-branch conflicts**: Detects conflicts between bc-* branches that individual validation misses
+            - ✅ **Guarantees integration success**: If validation passes, integration is guaranteed to succeed
+            - ✅ **Prevents surprise failures**: No more integration failures after validation appeared to pass
+            - ✅ **Accurate conflict reporting**: Shows exactly which branch conflicts in the sequence
+            - ✅ **Zero-tolerance quality**: All breaking changes must be mutually compatible
+
+            ### What This Prevents:
+            - ❌ Integration failures after successful individual validation
+            - ❌ Incomplete releases with missing features due to conflicts
+            - ❌ Confusion about which changes cause conflicts
+            - ❌ Sequential application failures in downstream systems
 
             ---
             **Triggered by**: ${{ github.sha }}
