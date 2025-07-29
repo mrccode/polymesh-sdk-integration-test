@@ -151,7 +151,7 @@ jobs:
             echo "all_clean=false" >> "$GITHUB_OUTPUT"
             echo "❌ RELEASE BLOCKED: Conflicts detected in branches:$CONFLICTED_BRANCHES"
             echo "❌ No preview release will be generated until all conflicts are resolved"
-            exit 1
+            echo "❌ Continuing workflow to create blocking issue..."
           fi
 
       - name: Create ephemeral integration branch
