@@ -95,8 +95,67 @@ jobs:
             echo "Found breaking change branches: $BC_BRANCHES"
           fi
       
-      - name: Create ephemeral integration branch
+      - name: Validate breaking change compatibility
         if: steps.discovery.outputs.found == 'true'
+        id: validation
+        run: |
+          echo "Validating all breaking change branches against develop..."
+          
+          ALL_CLEAN=true
+          CLEAN_BRANCHES=""
+          CONFLICTED_BRANCHES=""
+          VALIDATION_DETAILS=""
+          
+          for branch in $BC_BRANCHES; do
+            echo "Validating branch: $branch"
+            
+            # Create temporary branch for validation
+            git checkout -b "temp-validate-$branch" "origin/$branch"
+            
+            # Attempt rebase against develop
+            if git rebase develop --no-stat; then
+              echo "✅ $branch - clean rebase"
+              CLEAN_BRANCHES="$CLEAN_BRANCHES $branch"
+            else
+              echo "❌ $branch - conflicts detected"
+              
+              # Capture conflict details
+              CONFLICTED_FILES=$(git status --porcelain | grep "^UU\|^AA\|^DD" | awk '{print $2}' | tr '\n' ' ')
+              CONFLICT_INFO="Branch: $branch\nFiles with conflicts: $CONFLICTED_FILES"
+              
+              if [[ -z "$VALIDATION_DETAILS" ]]; then
+                VALIDATION_DETAILS="$CONFLICT_INFO"
+              else
+                VALIDATION_DETAILS="$VALIDATION_DETAILS\n\n$CONFLICT_INFO"
+              fi
+              
+              CONFLICTED_BRANCHES="$CONFLICTED_BRANCHES $branch"
+              git rebase --abort
+              ALL_CLEAN=false
+            fi
+            
+            # Cleanup validation branch
+            git checkout develop
+            git branch -D "temp-validate-$branch"
+          done
+          
+          # Set environment variables for later steps
+          echo "CLEAN_BRANCHES=$CLEAN_BRANCHES" >> "$GITHUB_ENV"
+          echo "CONFLICTED_BRANCHES=$CONFLICTED_BRANCHES" >> "$GITHUB_ENV"
+          echo -e "$VALIDATION_DETAILS" > validation_conflicts.txt
+          
+          if [[ "$ALL_CLEAN" == "true" ]]; then
+            echo "all_clean=true" >> "$GITHUB_OUTPUT"
+            echo "✅ All breaking change branches are conflict-free - proceeding with integration"
+          else
+            echo "all_clean=false" >> "$GITHUB_OUTPUT"
+            echo "❌ RELEASE BLOCKED: Conflicts detected in branches:$CONFLICTED_BRANCHES"
+            echo "❌ No preview release will be generated until all conflicts are resolved"
+            exit 1
+          fi
+
+      - name: Create ephemeral integration branch
+        if: steps.discovery.outputs.found == 'true' && steps.validation.outputs.all_clean == 'true'
         run: |
           # Create temporary integration branch from latest develop
           INTEGRATION_BRANCH="ephemeral-integration-$(date +%Y%m%d%H%M%S)"
@@ -106,12 +165,12 @@ jobs:
           echo "Created ephemeral integration branch: $INTEGRATION_BRANCH"
       
       - name: Cherry-pick breaking changes
-        if: steps.discovery.outputs.found == 'true'
+        if: steps.discovery.outputs.found == 'true' && steps.validation.outputs.all_clean == 'true'
         id: integration
         run: |
-          SUCCESSFUL_BRANCHES=""
-          FAILED_BRANCHES=""
-          CONFLICT_DETAILS=""
+          echo "Cherry-picking breaking changes (all branches pre-validated as conflict-free)..."
+          
+          BREAKING_CHANGE_METADATA=""
           
           for branch in $BC_BRANCHES; do
             echo "Processing branch: $branch"
@@ -124,59 +183,54 @@ jobs:
               continue
             fi
             
-            # Track per-branch success
-            BRANCH_SUCCESS=true
-            
             # Cherry-pick each commit in chronological order
             for commit in $COMMITS; do
               COMMIT_MSG=$(git log -1 --format="%s" "$commit")
+              COMMIT_BODY=$(git log -1 --format="%b" "$commit")
               echo "Applying commit: $commit ($COMMIT_MSG)"
               
-              if git cherry-pick "$commit"; then
-                echo "✅ Successfully applied: $commit"
-              else
-                echo "❌ Conflict detected: $commit"
+              # Cherry-pick will succeed since we pre-validated
+              git cherry-pick "$commit"
+              echo "✅ Successfully applied: $commit"
+              
+              # Parse breaking change metadata if this is a breaking change commit
+              if [[ "$COMMIT_MSG" == *"!"* ]] && [[ "$COMMIT_BODY" == *"BREAKING CHANGE:"* ]]; then
+                # Extract structured metadata
+                CATEGORY=$(echo "$COMMIT_BODY" | grep "Breaking-Change-Category:" | cut -d: -f2- | xargs)
+                IMPACT=$(echo "$COMMIT_BODY" | grep "Breaking-Change-Impact:" | cut -d: -f2- | xargs)
+                MIGRATION=$(echo "$COMMIT_BODY" | grep "Breaking-Change-Migration:" | cut -d: -f2- | xargs)
+                AFFECTS=$(echo "$COMMIT_BODY" | grep "Breaking-Change-Affects:" | cut -d: -f2- | xargs)
+                DESCRIPTION=$(echo "$COMMIT_BODY" | sed -n '/BREAKING CHANGE:/,/^$/p' | sed '1s/BREAKING CHANGE: *//' | head -n 1)
                 
-                # Capture conflict details
-                CONFLICTED_FILES=$(git status --porcelain | grep "^UU\|^AA\|^DD" | awk '{print $2}')
-                CONFLICT_INFO="Branch: $branch\nCommit: $commit\nMessage: $COMMIT_MSG\nFiles: $CONFLICTED_FILES"
-                
-                if [[ -z "$CONFLICT_DETAILS" ]]; then
-                  CONFLICT_DETAILS="$CONFLICT_INFO"
-                else
-                  CONFLICT_DETAILS="$CONFLICT_DETAILS\n\n$CONFLICT_INFO"
+                # Build metadata entry
+                BC_ENTRY="**${COMMIT_MSG}**\n"
+                BC_ENTRY="${BC_ENTRY}- **Category**: ${CATEGORY:-Unknown}\n"
+                BC_ENTRY="${BC_ENTRY}- **Impact**: ${IMPACT:-Unknown}\n"
+                BC_ENTRY="${BC_ENTRY}- **Description**: ${DESCRIPTION:-No description}\n"
+                if [[ -n "$MIGRATION" ]]; then
+                  BC_ENTRY="${BC_ENTRY}- **Migration**: ${MIGRATION}\n"
                 fi
+                if [[ -n "$AFFECTS" ]]; then
+                  BC_ENTRY="${BC_ENTRY}- **Affects**: ${AFFECTS}\n"
+                fi
+                BC_ENTRY="${BC_ENTRY}- **Branch**: \`${branch}\`\n"
+                BC_ENTRY="${BC_ENTRY}- **Commit**: \`${commit:0:7}\`\n\n"
                 
-                # Abort cherry-pick and mark branch as failed
-                git cherry-pick --abort
-                BRANCH_SUCCESS=false
-                break
+                BREAKING_CHANGE_METADATA="${BREAKING_CHANGE_METADATA}${BC_ENTRY}"
               fi
             done
-            
-            # Track results per branch
-            if [[ "$BRANCH_SUCCESS" == "true" ]]; then
-              SUCCESSFUL_BRANCHES="$SUCCESSFUL_BRANCHES $branch"
-            else
-              FAILED_BRANCHES="$FAILED_BRANCHES $branch"
-            fi
           done
           
-          # Set outputs for downstream steps
-          echo "SUCCESSFUL_BRANCHES=$SUCCESSFUL_BRANCHES" >> "$GITHUB_ENV"
-          echo "FAILED_BRANCHES=$FAILED_BRANCHES" >> "$GITHUB_ENV"
-          echo -e "$CONFLICT_DETAILS" > conflict_details.txt
-          
-          if [[ -n "$FAILED_BRANCHES" ]]; then
-            echo "conflicts=true" >> "$GITHUB_OUTPUT"
-            echo "Conflicts detected in branches:$FAILED_BRANCHES"
-          else
-            echo "conflicts=false" >> "$GITHUB_OUTPUT"
-            echo "All breaking changes applied successfully"
-          fi
+          # Set outputs for downstream steps - all branches successful since pre-validated
+          echo "SUCCESSFUL_BRANCHES=$BC_BRANCHES" >> "$GITHUB_ENV"
+          echo "BREAKING_CHANGE_METADATA<<EOF" >> "$GITHUB_ENV"
+          echo -e "$BREAKING_CHANGE_METADATA" >> "$GITHUB_ENV"
+          echo "EOF" >> "$GITHUB_ENV"
+          echo "conflicts=false" >> "$GITHUB_OUTPUT"
+          echo "All breaking changes applied successfully"
       
       - name: Check for staleness
-        if: steps.discovery.outputs.found == 'true'
+        if: steps.discovery.outputs.found == 'true' && steps.validation.outputs.all_clean == 'true'
         id: staleness
         run: |
           STALE_BRANCHES=""
@@ -199,7 +253,7 @@ jobs:
           fi
       
       - name: Build integrated codebase
-        if: steps.discovery.outputs.found == 'true'
+        if: steps.discovery.outputs.found == 'true' && steps.validation.outputs.all_clean == 'true'
         run: |
           echo "Building integrated codebase..."
           
@@ -212,7 +266,7 @@ jobs:
           echo "Build and tests completed successfully"
       
       - name: Generate preview version
-        if: steps.discovery.outputs.found == 'true'
+        if: steps.discovery.outputs.found == 'true' && steps.validation.outputs.all_clean == 'true'
         id: version
         run: |
           CURRENT_VERSION=$(node -p "require('./package.json').version")
@@ -235,7 +289,7 @@ jobs:
           echo "Generated preview version: $PREVIEW_VERSION"
       
       - name: Publish preview package
-        if: steps.discovery.outputs.found == 'true'
+        if: steps.discovery.outputs.found == 'true' && steps.validation.outputs.all_clean == 'true'
         run: |
           echo "Publishing preview package..."
           
@@ -247,7 +301,7 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       
       - name: Create release candidate branch
-        if: steps.discovery.outputs.found == 'true' && steps.integration.outputs.conflicts == 'false'
+        if: steps.discovery.outputs.found == 'true' && steps.validation.outputs.all_clean == 'true'
         id: release_candidate
         run: |
           # Only create release candidate if all breaking changes applied successfully
@@ -273,7 +327,7 @@ jobs:
           echo "Created release candidate branch: $RC_BRANCH"
       
       - name: Create GitHub release
-        if: steps.discovery.outputs.found == 'true' && steps.integration.outputs.conflicts == 'false'
+        if: steps.discovery.outputs.found == 'true' && steps.validation.outputs.all_clean == 'true'
         uses: actions/create-release@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -285,13 +339,14 @@ jobs:
 
             **Base commit**: ${{ github.sha }}
             **Preview version**: `${{ env.PREVIEW_VERSION }}`
-            **Integration status**: ${{ steps.integration.outputs.conflicts == 'false' && '✅ Complete' || '⚠️ Partial (conflicts detected)' }}
+            **Integration status**: ✅ All breaking changes integrated successfully
 
-            ## Breaking Changes Applied
-            ${{ env.SUCCESSFUL_BRANCHES && env.SUCCESSFUL_BRANCHES || 'None' }}
+            ## Breaking Changes Included
 
-            ## Conflicting Branches
-            ${{ env.FAILED_BRANCHES && env.FAILED_BRANCHES || 'None' }}
+            ${{ env.BREAKING_CHANGE_METADATA && env.BREAKING_CHANGE_METADATA || 'No breaking changes detected in commit metadata.' }}
+
+            ## Integrated Branches
+            ${{ env.SUCCESSFUL_BRANCHES }}
 
             ## Installation
             ```bash
@@ -299,75 +354,110 @@ jobs:
             ```
 
             ## Release Candidate
-            ${{ steps.release_candidate.outputs.created == 'true' && format('✅ Release candidate branch created: `{0}`', env.RC_BRANCH) || '⏳ Awaiting conflict resolution for RC creation' }}
+            ✅ Release candidate branch created: `${{ env.RC_BRANCH }}`
+
+            ## Migration Guide
+            Review the breaking change details above for specific migration instructions for each change.
 
             ---
             *Generated automatically by Ephemeral Next Major Release Integration*
+            
+            **Note**: This release includes ONLY conflict-free breaking changes. All branches were validated before integration.
           draft: false
           prerelease: true
       
-      - name: Report conflicts
-        if: steps.integration.outputs.conflicts == 'true'
+      - name: Report release blocked due to conflicts
+        if: steps.discovery.outputs.found == 'true' && steps.validation.outputs.all_clean == 'false'
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const fs = require('fs');
-            const failedBranches = process.env.FAILED_BRANCHES.trim().split(' ').filter(b => b);
+            const allBranches = process.env.BC_BRANCHES.trim().split(' ').filter(b => b);
+            const cleanBranches = process.env.CLEAN_BRANCHES ? process.env.CLEAN_BRANCHES.trim().split(' ').filter(b => b) : [];
+            const conflictedBranches = process.env.CONFLICTED_BRANCHES.trim().split(' ').filter(b => b);
             
-            for (const branch of failedBranches) {
-              const title = `🚨 Breaking Change Conflicts: ${branch}`;
-              const body = `# Breaking Change Conflict Detected
+            const title = `🚨 Release Blocked - Breaking Change Conflicts Detected`;
+            const body = `# Release Status: BLOCKED ❌
 
-            **Branch**: \`${branch}\`
-            **Triggered by**: ${{ github.sha }}
-            **Workflow**: ${{ github.run_id }}
+            The preview release has been **completely blocked** due to conflicts in one or more breaking change branches.
 
-            ## Resolution Steps
+            ## Branch Status Summary
 
-            1. Checkout the conflicting branch:
+            ${allBranches.map(branch => {
+              const status = conflictedBranches.includes(branch) ? '❌ Conflicts' : '✅ Ready';
+              return `- \`${branch}\`: ${status}`;
+            }).join('\n')}
+
+            ## Conflicted Branches Requiring Resolution
+
+            ${conflictedBranches.map(branch => `- \`${branch}\``).join('\n')}
+
+            ## Resolution Required
+
+            **ALL conflicted branches must be resolved before ANY release can proceed.**
+
+            For each conflicted branch:
+
+            1. **Checkout and rebase**:
                \`\`\`bash
-               git checkout ${branch}
+               git checkout ${conflictedBranches[0] || '<branch-name>'}
                git fetch origin develop
-               \`\`\`
-
-            2. Rebase onto latest develop:
-               \`\`\`bash
                git rebase origin/develop
                \`\`\`
 
-            3. Resolve conflicts manually:
-               - Edit conflicted files
-               - Remove conflict markers
-               - Test changes
+            2. **Resolve conflicts manually**:
+               - Edit conflicted files to resolve conflicts
+               - Remove conflict markers (\`<<<<<<<\`, \`=======\`, \`>>>>>>>\`)
+               - Test changes to ensure functionality
 
-            4. Complete rebase and update remote:
+            3. **Complete rebase and update**:
                \`\`\`bash
                git add .
                git rebase --continue
-               git push --force-with-lease origin ${branch}
+               git push --force-with-lease origin <branch-name>
                \`\`\`
 
-            5. Next develop push will automatically retry integration
+            4. **Manually trigger workflow** after ALL conflicts resolved:
+               - Go to Actions tab
+               - Select "Generate Next Major Preview" workflow
+               - Click "Run workflow" button
+               - Select "Run workflow" to manually trigger
+
+            ## No Partial Releases
+
+            This system uses **zero-tolerance conflict prevention**:
+            - ❌ No preview release generated
+            - ❌ No npm package published
+            - ❌ No release candidate created
+            - ⚠️ Manual workflow dispatch required after resolution
 
             ## Conflict Details
+
             \`\`\`
-            ${fs.readFileSync('conflict_details.txt', 'utf8')}
+            ${fs.existsSync('validation_conflicts.txt') ? fs.readFileSync('validation_conflicts.txt', 'utf8') : 'Conflict details not available'}
             \`\`\`
 
+            ## Why This Approach?
+
+            **This approach ensures release integrity** - all breaking changes must be compatible before any preview is created. This prevents:
+            - Incomplete releases with missing features
+            - Integration issues in downstream systems
+            - Confusion about which changes are included
+
             ---
+            **Triggered by**: ${{ github.sha }}
+            **Workflow**: ${{ github.run_id }}
             **Auto-generated by**: Ephemeral Next Major Release Integration
             **Need help?** Check the [process documentation](../blob/main/PROCESS.md#conflict-resolution)`;
 
-              await github.rest.issues.create({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                title: title,
-                body: body,
-                labels: ['breaking-changes', 'conflicts', 'automation'],
-                assignees: [] // Could be enhanced to assign to branch author
-              });
-            }
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: title,
+              body: body,
+              labels: ['breaking-changes', 'conflicts', 'release-blocked', 'automation']
+            });
       
       - name: Report stale branches
         if: steps.staleness.outputs.stale_found == 'true'
@@ -415,22 +505,25 @@ jobs:
           script: |
             const sha = context.sha;
             const found = '${{ steps.discovery.outputs.found }}' === 'true';
-            const conflicts = '${{ steps.integration.outputs.conflicts }}' === 'true';
+            const allClean = '${{ steps.validation.outputs.all_clean }}' === 'true';
             const version = '${{ env.PREVIEW_VERSION }}';
+            const conflictedBranches = '${{ env.CONFLICTED_BRANCHES }}';
             
             let body = '# 🤖 Next Major Preview Generation\n\n';
             
             if (!found) {
               body += '**Status**: ✅ No breaking changes found\n';
               body += '**Action**: None required - develop ready for patch/minor release\n';
-            } else if (conflicts) {
-              body += `**Status**: ⚠️ Conflicts detected - no release created\n`;
-              body += `**Action**: Resolve conflicts in breaking change branches\n`;
-              body += `**Conflicts**: See issues for resolution steps\n`;
+            } else if (!allClean) {
+              body += `**Status**: ❌ RELEASE BLOCKED - Conflicts detected\n`;
+              body += `**Conflicted branches**: ${conflictedBranches}\n`;
+              body += `**Action**: Resolve ALL conflicts, then manually trigger workflow\n`;
+              body += `**No partial releases**: Zero-tolerance conflict prevention in effect\n`;
             } else {
               body += `**Status**: ✅ Complete preview generated\n`;
               body += `**Version**: \`${version}\`\n`;
               body += `**Release Candidate**: ${{ env.RC_BRANCH }}\n`;
+              body += `**Validation**: All breaking changes pre-validated conflict-free\n`;
             }
             
             body += `\n**Workflow**: [View run](${context.payload.repository.html_url}/actions/runs/${context.runId})`;
@@ -448,7 +541,7 @@ jobs:
           echo "Cleaning up ephemeral resources..."
           
           # Clean up temporary files
-          rm -f conflict_details.txt
+          rm -f conflict_details.txt validation_conflicts.txt
           
           # Reset to original state (ephemeral branch will be garbage collected)
           git checkout develop
