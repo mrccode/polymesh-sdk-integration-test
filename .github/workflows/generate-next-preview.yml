@@ -222,10 +222,12 @@ jobs:
           done
 
           # Set outputs for downstream steps - all branches successful since pre-validated
-          echo "SUCCESSFUL_BRANCHES=$BC_BRANCHES" >> "$GITHUB_ENV"
-          echo "BREAKING_CHANGE_METADATA<<EOF" >> "$GITHUB_ENV"
-          echo -e "$BREAKING_CHANGE_METADATA" >> "$GITHUB_ENV"
-          echo "EOF" >> "$GITHUB_ENV"
+          {
+            echo "SUCCESSFUL_BRANCHES=$BC_BRANCHES"
+            echo "BREAKING_CHANGE_METADATA<<EOF"
+            echo -e "$BREAKING_CHANGE_METADATA"
+            echo "EOF"
+          } >> "$GITHUB_ENV"
           echo "conflicts=false" >> "$GITHUB_OUTPUT"
           echo "All breaking changes applied successfully"
 
