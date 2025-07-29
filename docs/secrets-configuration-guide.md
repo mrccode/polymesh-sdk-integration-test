@@ -5,9 +5,11 @@
 The following secrets must be configured in the repository settings before the workflow can run successfully:
 
 ### 1. BOT_PAT (GitHub Personal Access Token)
+
 **Purpose**: Enables the workflow to authenticate with GitHub API for creating issues, releases, and branches.
 
 **Configuration Steps**:
+
 1. Navigate to Repository Settings > Secrets and variables > Actions
 2. Click "New repository secret"
 3. Name: `BOT_PAT`
@@ -15,6 +17,7 @@ The following secrets must be configured in the repository settings before the w
 5. Click "Add secret"
 
 **Required Permissions**:
+
 - Contents: Read and Write
 - Issues: Write
 - Pull requests: Write
@@ -24,14 +27,17 @@ The following secrets must be configured in the repository settings before the w
 - Commit statuses: Write
 
 ### 2. NPM_TOKEN (NPM Publishing Token)
+
 **Purpose**: Enables the workflow to publish preview packages to NPM registry.
 
 **For Test Environment (Mock Publishing)**:
+
 - **NOT REQUIRED** - The workflow uses `npm publish --dry-run` by default
 - Mock publishing validates package building without actual publication
 - See docs/npm-mock-publishing-guide.md for details
 
 **For Production Environment (Real Publishing)**:
+
 1. Navigate to Repository Settings > Secrets and variables > Actions
 2. Click "New repository secret"
 3. Name: `NPM_TOKEN`
@@ -62,9 +68,11 @@ gh secret list --repo owner/repo
 ## Troubleshooting
 
 ### Common Issues:
+
 1. **"Secret not found"** - Verify secret name matches exactly (case-sensitive)
 2. **"Authentication failed"** - Check token permissions and expiration
 3. **"Rate limit exceeded"** - Bot token may need higher rate limits
 
 ### Testing Secret Access:
+
 The workflow will fail early if required secrets are not accessible, preventing unnecessary execution time.
